@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#3b9b69">
+  <title>마음이음 | 학교 기반 학생 마음지원 플랫폼</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand-mini">
+        <img src="./assets/maeum-ieum-logo.png" alt="마음이음 로고">
+        <div><h1>마음이음</h1><p>학교 기반 학생 마음지원 플랫폼</p></div>
+      </div>
+      <div class="top-actions">
+        <span id="schoolPill" class="pill hidden"></span>
+        <span id="userPill" class="pill hidden"></span>
+        <button id="exitBtn" class="btn ghost small hidden" type="button">나가기</button>
+      </div>
+    </header>
+
+    <main id="main"></main>
+    <footer class="footer">마음이음 Hybrid 0.1 · 마음을 살피고, 도움을 잇다</footer>
+  </div>
+
+  <div id="modal" class="modal hidden"><div id="modalBody" class="modal-card"></div></div>
+  <div id="toast" class="hidden"></div>
+
+  <script src="./js/schools.js"></script>
+  <script src="./js/bridge-api.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>

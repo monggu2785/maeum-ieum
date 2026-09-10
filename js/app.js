@@ -1,7 +1,13 @@
 (() => {
   'use strict';
 
-  const S = {schoolCode:'', school:null, config:null, sessionToken:'', user:null, home:null, busy:false};
+  const APP_START = performance.now();
+
+  const S = {
+    schoolCode:'', school:null, config:null,
+    sessionToken:'', user:null, home:null,
+    busy:false, pendingMood:'', instantShownAt:0, instantVisibleSec:''
+  };
   const $ = id => document.getElementById(id);
   const main = () => $('main');
 
@@ -27,7 +33,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.2 학생 빠른접속 시험판</b><br><span class="sub">현재는 학교 연결·로그인·학생 개인기기 자동접속 기반을 검증하는 단계입니다. 실제 학생 마음기록 운영에는 아직 사용하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.3 학생 즉시접속 시험판</b><br><span class="sub">개인기기 자동접속에서는 Google 서버 응답을 기다리지 않고 학생용 첫 화면을 먼저 보여줍니다. 실제 마음기록 저장은 Hybrid 0.2에서 연결합니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -46,29 +52,107 @@
       return;
     }
 
-    S.schoolCode = code; S.school = school;
-    renderConnecting(school.name);
+    S.schoolCode = code;
+    S.school = school;
+
+    // 0.1.3 핵심: 기기토큰이 있으면 Google 연결보다 먼저 학생용 공개 첫 화면을 즉시 표시합니다.
+    const deviceToken = getDeviceToken();
+    const optimisticStudent = !!deviceToken;
+    const totalStart = performance.now();
+    if (optimisticStudent) {
+      S.instantShownAt = performance.now();
+      renderInstantStudentShell(school.name);
+      S.instantVisibleSec = ((performance.now()-APP_START)/1000).toFixed(2);
+      setHeader(true);
+    } else {
+      renderConnecting(school.name);
+    }
+
     try {
       const cfg = await window.MI_API.connect(school.bridgeUrl, code);
       S.config = cfg;
       localStorage.setItem('mi_school_code',code);
       setHeader(true);
-      const deviceToken = getDeviceToken();
+
       if (deviceToken) {
-        const speedStart = performance.now();
         try {
+          updateInstantAuthStatus('학교 계정을 확인하고 있어요…', 'checking');
           const resumed = await window.MI_API.call('resumeStudent',[deviceToken]);
           await acceptLogin(resumed, true);
-          toast(`자동접속 완료 · ${elapsedSec(speedStart)}초${resServer(resumed)}`);
+          toast(`첫 화면 ${S.instantVisibleSec||'0'}초 · 자동인증 ${elapsedSec(totalStart)}초${resServer(resumed)}`);
           return;
         } catch (e) {
           clearDeviceToken();
+          S.pendingMood='';
           toast('자동접속 기간이 끝났습니다. 한 번만 다시 로그인해 주세요.');
+          renderLogin();
+          return;
         }
       }
       renderLogin();
     } catch (e) {
+      if (optimisticStudent) updateInstantAuthStatus('학교 서버 연결을 확인해 주세요.', 'error');
       renderConnectionError(e.message || String(e));
+    }
+  }
+
+  function renderInstantStudentShell(name){
+    $('userPill').classList.add('hidden');
+    $('exitBtn').classList.add('hidden');
+    $('schoolPill').textContent=name||'';
+    $('schoolPill').classList.remove('hidden');
+
+    main().innerHTML = `
+      <section class="instant-student" aria-busy="true">
+        <div class="instant-kicker">${esc(name || '우리학교')}</div>
+        <h2>오늘 마음은 어때?</h2>
+        <p class="instant-sub">화면은 바로 열렸어요. 뒤에서 안전하게 학교 계정을 확인하고 있습니다.</p>
+
+        <div class="mood-options" role="group" aria-label="오늘의 마음 선택 미리보기">
+          ${moodButton('great','😊','좋아요')}
+          ${moodButton('good','🙂','괜찮아요')}
+          ${moodButton('okay','😐','그냥 그래요')}
+          ${moodButton('hard','😟','힘들어요')}
+          ${moodButton('veryhard','😢','많이 힘들어요')}
+        </div>
+
+        <button class="quiet-choice" id="skipMoodBtn" type="button">오늘은 말하고 싶지 않아요</button>
+
+        <div class="instant-status checking" id="instantAuthStatus">
+          <span class="mini-spinner" aria-hidden="true"></span>
+          <span id="instantAuthText">Google 서버와 안전하게 연결 중이에요…</span>
+        </div>
+        <p class="instant-note" id="instantNote">지금 보이는 화면에는 이름·상담기록 같은 개인정보를 표시하지 않습니다.</p>
+      </section>`;
+
+    document.querySelectorAll('.mood-btn').forEach(btn => {
+      btn.addEventListener('click', () => selectPreviewMood(btn.dataset.mood, btn));
+    });
+    $('skipMoodBtn').onclick=()=>selectPreviewMood('skip', $('skipMoodBtn'));
+  }
+
+  function moodButton(value, emoji, label){
+    return `<button class="mood-btn" type="button" data-mood="${value}" aria-label="${esc(label)}"><span class="mood-emoji">${emoji}</span><span>${esc(label)}</span></button>`;
+  }
+
+  function selectPreviewMood(value, el){
+    S.pendingMood=value;
+    document.querySelectorAll('.mood-btn,.quiet-choice').forEach(x=>x.classList.remove('selected'));
+    if(el) el.classList.add('selected');
+    const note=$('instantNote');
+    if(note) note.textContent='선택은 현재 화면에만 잠시 표시됩니다. 실제 저장은 인증 완료 후 Hybrid 0.2에서 연결합니다.';
+  }
+
+  function updateInstantAuthStatus(text, state){
+    const box=$('instantAuthStatus');
+    const label=$('instantAuthText');
+    if(!box||!label) return;
+    box.classList.remove('checking','ok','error');
+    box.classList.add(state||'checking');
+    label.textContent=text||'';
+    if(state==='ok'){
+      const spinner=box.querySelector('.mini-spinner');
+      if(spinner) spinner.style.display='none';
     }
   }
 
@@ -85,7 +169,7 @@
   }
 
   function renderConnecting(name){
-    main().innerHTML=`<section class="card hero"><span class="school-badge">${esc(name)}</span><h2>마음이음을 준비하고 있어요</h2><div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><p class="sub">화면은 먼저 열고, 필요한 학교 데이터만 한 번에 안전하게 연결합니다.</p></section>`;
+    main().innerHTML=`<section class="card hero"><span class="school-badge">${esc(name)}</span><h2>마음이음을 준비하고 있어요</h2><div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><p class="sub">처음 연결하는 기기입니다. 학교 서버를 확인한 뒤 로그인 화면을 엽니다.</p></section>`;
   }
 
   function renderConnectionError(message){
@@ -99,14 +183,14 @@
       </section>`;
   }
 
-  function renderLogin(){
+  function renderLogin(prefillId){
     const cfg = S.config || {};
     main().innerHTML=`
       <section class="card hero">
         <span class="school-badge">${esc(cfg.schoolName || S.school?.name || '')}</span>
         <h2>반가워요</h2>
         <p class="sub">처음에는 발급받은 아이디와 접속코드를 입력합니다.</p>
-        <div class="field"><label>아이디</label><input id="loginId" autocomplete="username" placeholder="예: ST-001 / T-01 / A-01"></div>
+        <div class="field"><label>아이디</label><input id="loginId" autocomplete="username" placeholder="예: ST-001 / T-01 / A-01" value="${esc(prefillId||'')}"></div>
         <div class="field"><label>접속코드</label><input id="loginCode" type="password" autocomplete="current-password" placeholder="접속코드 입력"></div>
         <div class="checkline"><input id="rememberDevice" type="checkbox"><label for="rememberDevice"><b>이 기기는 내 개인기기입니다.</b><br>학생은 최초 인증 후 일정 기간 다음 접속부터 바로 들어갈 수 있습니다. 공용 PC·공용 태블릿에서는 선택하지 마세요.</label></div>
         <button id="loginBtn" class="btn full" type="button">접속하기</button>
@@ -118,6 +202,26 @@
     $('loginCode').addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();});
   }
 
+  function renderLoginTransition(id){
+    const studentLike=/^ST-/i.test(String(id||''));
+    main().innerHTML = studentLike ? `
+      <section class="instant-student login-transition" aria-busy="true">
+        <div class="instant-kicker">${esc(S.config?.schoolName || S.school?.name || '')}</div>
+        <h2>반가워요 🌱</h2>
+        <p class="instant-sub">처음 한 번만 개인기기를 안전하게 확인하고 있어요.</p>
+        <div class="mood-options muted-preview" aria-hidden="true">
+          ${moodButton('great','😊','좋아요')}${moodButton('good','🙂','괜찮아요')}${moodButton('okay','😐','그냥 그래요')}${moodButton('hard','😟','힘들어요')}${moodButton('veryhard','😢','많이 힘들어요')}
+        </div>
+        <div class="instant-status checking"><span class="mini-spinner" aria-hidden="true"></span><span>접속정보를 확인하고 있어요…</span></div>
+      </section>` : `
+      <section class="card hero" aria-busy="true">
+        <span class="school-badge">${esc(S.config?.schoolName || S.school?.name || '')}</span>
+        <h2>마음이음을 안전하게 여는 중입니다</h2>
+        <div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+        <p class="sub">교직원·관리자 정보는 인증이 완료된 뒤에만 표시합니다.</p>
+      </section>`;
+  }
+
   async function doLogin(){
     if (S.busy) return;
     const id=($('loginId').value||'').trim();
@@ -126,15 +230,19 @@
     if(!id||!code) return toast('아이디와 접속코드를 입력해 주세요.');
 
     const speedStart=performance.now();
-    setBusy(true,'loginBtn','마음이음을 여는 중...');
+    S.busy=true;
+    renderLoginTransition(id);
     try{
       const res=await window.MI_API.call('login',[id,code,remember,getDeviceAlias()]);
       if(res.deviceToken) setDeviceToken(res.deviceToken);
-      $('loginCode').value='';
       await acceptLogin(res,false);
-      if(!res.mustChangeCode) toast(`접속 완료 · ${elapsedSec(speedStart)}초${resServer(res)}`);
-    }catch(e){toast(e.message||String(e));}
-    finally{setBusy(false,'loginBtn','접속하기');}
+      if(!res.mustChangeCode) toast(`접속인증 완료 · ${elapsedSec(speedStart)}초${resServer(res)} · 화면은 즉시 전환`);
+    }catch(e){
+      renderLogin(id);
+      toast(e.message||String(e));
+    }finally{
+      S.busy=false;
+    }
   }
 
   async function acceptLogin(res, auto){
@@ -143,8 +251,6 @@
     if(res.mustChangeCode){ showChangeCode(true); return; }
 
     try{
-      // 0.1.1: 로그인/자동접속 응답에 home이 포함되므로
-      // 정상 경로에서는 getHome()을 다시 호출하지 않습니다.
       S.home=res.home || await window.MI_API.call('getHome',[S.sessionToken]);
       S.user=S.home.user;
       S.config=S.home.config || S.config;
@@ -170,12 +276,15 @@
   function renderStudentHome(auto){
     const h=S.home, s=h.student;
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(s.name)}님, 안녕하세요</h2><p>${esc(s.grade)}학년 ${esc(s.classNo)}반${s.number?' '+esc(s.number)+'번':''}${auto?' · 자동접속됨':''}</p></div>
+      <div class="home-head"><h2>${esc(s.name)}님, 안녕하세요</h2><p>${esc(s.grade)}학년 ${esc(s.classNo)}반${s.number?' '+esc(s.number)+'번':''}${auto?' · 자동접속 확인됨':''}</p></div>
       <div class="grid grid2">
         <section class="big-action">
-          <div class="emoji">🌿</div><h3>오늘의 마음</h3>
-          <p class="sub">다음 단계에서 이곳이 학생의 첫 화면이 됩니다. 5~10초 안에 마음 상태를 남기고 바로 나갈 수 있도록 만들 예정입니다.</p>
-          <button class="btn secondary" type="button" onclick="toast('오늘의 마음 기능은 Hybrid 0.2에서 연결합니다.')">다음 단계 미리보기</button>
+          <div class="section-title"><h3>오늘의 마음</h3><span class="badge">즉시 화면</span></div>
+          <p class="sub">학생이 마음이음을 열면 이 화면부터 먼저 보이도록 바뀌었습니다.</p>
+          <div class="mood-options compact" role="group" aria-label="오늘의 마음 선택 미리보기">
+            ${moodButton('great','😊','좋아요')}${moodButton('good','🙂','괜찮아요')}${moodButton('okay','😐','그냥 그래요')}${moodButton('hard','😟','힘들어요')}${moodButton('veryhard','😢','많이 힘들어요')}
+          </div>
+          <p class="tiny-note">현재 0.1.3에서는 화면 반응만 시험합니다. 실제 마음 기록 저장은 0.2에서 연결합니다.</p>
         </section>
         <section class="card">
           <div class="section-title"><h3>개인기기 접속</h3><span class="badge">${getDeviceToken()?'자동접속 사용':'일반접속'}</span></div>
@@ -184,9 +293,20 @@
         </section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>0.1 연결 확인</h3><span class="badge">정상</span></div>
-        <div class="notice">GitHub 화면 → 학교별 Apps Script → 학교별 Google Sheet 연결이 정상적으로 작동하고 있습니다.</div>
+        <div class="section-title"><h3>0.1.3 연결 확인</h3><span class="badge">정상</span></div>
+        <div class="notice">GitHub 화면은 즉시 표시하고, 학교별 Apps Script 인증은 뒤에서 완료합니다. 개인정보와 과거 기록은 인증 전에는 표시하지 않습니다.</div>
       </section>`;
+
+    if(S.pendingMood){
+      const selected=document.querySelector(`.mood-btn[data-mood="${CSS.escape(S.pendingMood)}"]`);
+      if(selected) selected.classList.add('selected');
+    }
+    document.querySelectorAll('.mood-btn').forEach(btn=>btn.onclick=()=>{
+      document.querySelectorAll('.mood-btn').forEach(x=>x.classList.remove('selected'));
+      btn.classList.add('selected');
+      S.pendingMood=btn.dataset.mood;
+      toast('화면 반응 확인 완료. 실제 저장은 Hybrid 0.2에서 연결합니다.');
+    });
     if($('revokeDeviceBtn')) $('revokeDeviceBtn').onclick=revokeCurrentDevice;
   }
 
@@ -203,14 +323,14 @@
 
   function renderAdminHome(){
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.1</p></div>
+      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.3</p></div>
       <div class="grid grid3">
         <section class="card"><h3>학교별 독립 DB</h3><p class="sub">이 학교의 학생·학부모·교직원 데이터는 이 학교의 Google Sheet에 저장됩니다.</p></section>
-        <section class="card"><h3>학생 자동접속</h3><p class="sub">개인기기 토큰은 학생 계정에만 발급하며 전출·졸업·사망·사용중지 시 자동 해제됩니다.</p></section>
+        <section class="card"><h3>학생 즉시접속</h3><p class="sub">개인기기 학생 화면은 즉시 표시하고 인증은 뒤에서 진행합니다. 민감정보는 인증 완료 후에만 표시됩니다.</p></section>
         <section class="card"><h3>상담정보 분리</h3><p class="sub">관리자 권한과 민감한 상담정보 열람권한은 분리하는 원칙을 유지합니다.</p></section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.1</span></div>
+        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.3</span></div>
         <div class="grid grid2"><button class="btn" id="accountBtn">학생·교직원 현황 불러오기</button><button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button></div>
         <div id="adminPane" style="margin-top:14px"></div>
       </section>`;
@@ -252,7 +372,6 @@
       if(S.user?.role==='student') clearDeviceToken();
       closeModal(); toast(res.message||'접속코드를 변경했습니다.');
       if(forced){
-        // 0.1.1: 코드변경 응답에도 home을 함께 받아 추가 왕복을 없앱니다.
         S.home=res.home || await window.MI_API.call('getHome',[S.sessionToken]);
         S.user=S.home.user; S.config=S.home.config||S.config; renderHome(false);
       }
@@ -269,7 +388,7 @@
   }
 
   async function logout(){
-    const token=S.sessionToken; S.sessionToken=''; S.user=null; S.home=null;
+    const token=S.sessionToken; S.sessionToken=''; S.user=null; S.home=null; S.pendingMood='';
     try{if(token) await window.MI_API.call('logout',[token]);}catch(e){}
     $('userPill').classList.add('hidden'); $('exitBtn').classList.add('hidden');
     renderLogin();
@@ -277,7 +396,7 @@
 
   function changeSchool(){
     localStorage.removeItem('mi_school_code');
-    S.schoolCode='';S.school=null;S.config=null;S.sessionToken='';S.user=null;S.home=null;
+    S.schoolCode='';S.school=null;S.config=null;S.sessionToken='';S.user=null;S.home=null;S.pendingMood='';
     window.MI_API.disconnect(); renderSchoolGate();
   }
 
@@ -303,7 +422,6 @@
   window.closeModal=function(){$('modal').classList.add('hidden');$('modalBody').innerHTML='';};
   window.toast=toast;
   function toast(msg){const el=$('toast');el.textContent=String(msg||'');el.classList.remove('hidden');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.add('hidden'),3500);}
-  function setBusy(v,id,text){S.busy=v;const b=$(id);if(b){b.disabled=v;b.textContent=text;}}
   function elapsedSec(start){return Math.max(0,(performance.now()-start)/1000).toFixed(1);}
   function resServer(res){return res&&Number.isFinite(Number(res.serverMs))?` · 서버 ${(Number(res.serverMs)/1000).toFixed(1)}초`:'';}
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}

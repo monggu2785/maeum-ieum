@@ -6,7 +6,7 @@
   const S = {
     schoolCode:'', school:null, config:null,
     sessionToken:'', user:null, home:null,
-    busy:false, pendingMood:'', instantShownAt:0, instantVisibleSec:''
+    quickWriteToken:'', busy:false, pendingMood:'', instantShownAt:0, instantVisibleSec:''
   };
   const $ = id => document.getElementById(id);
   const main = () => $('main');
@@ -15,6 +15,13 @@
 
   function init(){
     $('exitBtn').addEventListener('click', logout);
+
+    // 0.1.4: 학생이 감정을 누른 직후 창을 닫아도 마지막 빠른기록을 한 번 더 전송합니다.
+    window.addEventListener('pagehide', flushPendingMoodBeacon);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushPendingMoodBeacon();
+    });
+
     const saved = localStorage.getItem('mi_school_code') || '';
     if (saved && window.MI_SCHOOLS && window.MI_SCHOOLS[saved]) connectSchool(saved, true);
     else renderSchoolGate();
@@ -33,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.3 학생 즉시접속 시험판</b><br><span class="sub">개인기기 자동접속에서는 Google 서버 응답을 기다리지 않고 학생용 첫 화면을 먼저 보여줍니다. 실제 마음기록 저장은 Hybrid 0.2에서 연결합니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.4 빠른기록 기반판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -55,8 +62,9 @@
     S.schoolCode = code;
     S.school = school;
 
-    // 0.1.3 핵심: 기기토큰이 있으면 Google 연결보다 먼저 학생용 공개 첫 화면을 즉시 표시합니다.
+    // 0.1.4 핵심: 기기토큰이 있으면 Google 연결보다 먼저 학생용 공개 첫 화면을 즉시 표시합니다.
     const deviceToken = getDeviceToken();
+    S.quickWriteToken = getQuickWriteToken();
     const optimisticStudent = !!deviceToken;
     const totalStart = performance.now();
     if (optimisticStudent) {
@@ -78,11 +86,14 @@
         try {
           updateInstantAuthStatus('학교 계정을 확인하고 있어요…', 'checking');
           const resumed = await window.MI_API.call('resumeStudent',[deviceToken]);
+          if (resumed.quickWriteToken) setQuickWriteToken(resumed.quickWriteToken);
           await acceptLogin(resumed, true);
+          await flushPendingMoodRpc();
           toast(`첫 화면 ${S.instantVisibleSec||'0'}초 · 자동인증 ${elapsedSec(totalStart)}초${resServer(resumed)}`);
           return;
         } catch (e) {
           clearDeviceToken();
+          clearQuickWriteToken();
           S.pendingMood='';
           toast('자동접속 기간이 끝났습니다. 한 번만 다시 로그인해 주세요.');
           renderLogin();
@@ -106,9 +117,9 @@
       <section class="instant-student" aria-busy="true">
         <div class="instant-kicker">${esc(name || '우리학교')}</div>
         <h2>오늘 마음은 어때?</h2>
-        <p class="instant-sub">화면은 바로 열렸어요. 뒤에서 안전하게 학교 계정을 확인하고 있습니다.</p>
+        <p class="instant-sub">마음을 누르면 바로 전송을 시작합니다. 학교 계정 확인은 뒤에서 계속 진행됩니다.</p>
 
-        <div class="mood-options" role="group" aria-label="오늘의 마음 선택 미리보기">
+        <div class="mood-options" role="group" aria-label="오늘의 마음 선택">
           ${moodButton('great','😊','좋아요')}
           ${moodButton('good','🙂','괜찮아요')}
           ${moodButton('okay','😐','그냥 그래요')}
@@ -118,11 +129,15 @@
 
         <button class="quiet-choice" id="skipMoodBtn" type="button">오늘은 말하고 싶지 않아요</button>
 
+        <div class="record-status idle" id="moodSaveStatus">
+          <span id="moodSaveText">마음을 선택하면 바로 전송을 시작해요.</span>
+        </div>
+
         <div class="instant-status checking" id="instantAuthStatus">
           <span class="mini-spinner" aria-hidden="true"></span>
           <span id="instantAuthText">Google 서버와 안전하게 연결 중이에요…</span>
         </div>
-        <p class="instant-note" id="instantNote">지금 보이는 화면에는 이름·상담기록 같은 개인정보를 표시하지 않습니다.</p>
+        <p class="instant-note" id="instantNote">이 화면에는 이름·상담기록 같은 개인정보를 표시하지 않습니다. 전송이 확인되기 전에는 '저장됨'이라고 표시하지 않습니다.</p>
       </section>`;
 
     document.querySelectorAll('.mood-btn').forEach(btn => {
@@ -139,8 +154,11 @@
     S.pendingMood=value;
     document.querySelectorAll('.mood-btn,.quiet-choice').forEach(x=>x.classList.remove('selected'));
     if(el) el.classList.add('selected');
+
     const note=$('instantNote');
-    if(note) note.textContent='선택은 현재 화면에만 잠시 표시됩니다. 실제 저장은 인증 완료 후 Hybrid 0.2에서 연결합니다.';
+    if(note) note.textContent='선택과 동시에 전송을 시작했습니다. 창을 바로 닫아도 브라우저가 전송을 계속 시도하고, 확인되지 않은 기록은 다음 접속 때 다시 보냅니다.';
+
+    submitQuickMood(value);
   }
 
   function updateInstantAuthStatus(text, state){
@@ -235,7 +253,9 @@
     try{
       const res=await window.MI_API.call('login',[id,code,remember,getDeviceAlias()]);
       if(res.deviceToken) setDeviceToken(res.deviceToken);
+      if(res.quickWriteToken) setQuickWriteToken(res.quickWriteToken);
       await acceptLogin(res,false);
+      await flushPendingMoodRpc();
       if(!res.mustChangeCode) toast(`접속인증 완료 · ${elapsedSec(speedStart)}초${resServer(res)} · 화면은 즉시 전환`);
     }catch(e){
       renderLogin(id);
@@ -247,6 +267,7 @@
 
   async function acceptLogin(res, auto){
     S.sessionToken=res.token; S.user=res.user;
+    if(res.quickWriteToken) setQuickWriteToken(res.quickWriteToken);
     setHeader(true);
     if(res.mustChangeCode){ showChangeCode(true); return; }
 
@@ -280,11 +301,13 @@
       <div class="grid grid2">
         <section class="big-action">
           <div class="section-title"><h3>오늘의 마음</h3><span class="badge">즉시 화면</span></div>
-          <p class="sub">학생이 마음이음을 열면 이 화면부터 먼저 보이도록 바뀌었습니다.</p>
-          <div class="mood-options compact" role="group" aria-label="오늘의 마음 선택 미리보기">
+          <p class="sub">마음을 선택하면 즉시 빠른기록 전송을 시작합니다.</p>
+          <div class="mood-options compact" role="group" aria-label="오늘의 마음 선택">
             ${moodButton('great','😊','좋아요')}${moodButton('good','🙂','괜찮아요')}${moodButton('okay','😐','그냥 그래요')}${moodButton('hard','😟','힘들어요')}${moodButton('veryhard','😢','많이 힘들어요')}
           </div>
-          <p class="tiny-note">현재 0.1.3에서는 화면 반응만 시험합니다. 실제 마음 기록 저장은 0.2에서 연결합니다.</p>
+          <button class="quiet-choice" id="homeSkipMoodBtn" type="button">오늘은 말하고 싶지 않아요</button>
+          <div class="record-status idle" id="homeMoodSaveStatus"><span id="homeMoodSaveText">선택하면 바로 전송해요.</span></div>
+          <p class="tiny-note">서버가 저장을 확인하면 ✓가 표시됩니다. 확인 전에 페이지를 닫아도 브라우저가 전송을 계속 시도합니다.</p>
         </section>
         <section class="card">
           <div class="section-title"><h3>개인기기 접속</h3><span class="badge">${getDeviceToken()?'자동접속 사용':'일반접속'}</span></div>
@@ -293,7 +316,7 @@
         </section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>0.1.3 연결 확인</h3><span class="badge">정상</span></div>
+        <div class="section-title"><h3>0.1.4 빠른기록 확인</h3><span class="badge">정상</span></div>
         <div class="notice">GitHub 화면은 즉시 표시하고, 학교별 Apps Script 인증은 뒤에서 완료합니다. 개인정보와 과거 기록은 인증 전에는 표시하지 않습니다.</div>
       </section>`;
 
@@ -302,12 +325,19 @@
       if(selected) selected.classList.add('selected');
     }
     document.querySelectorAll('.mood-btn').forEach(btn=>btn.onclick=()=>{
-      document.querySelectorAll('.mood-btn').forEach(x=>x.classList.remove('selected'));
+      document.querySelectorAll('.mood-btn,.quiet-choice').forEach(x=>x.classList.remove('selected'));
       btn.classList.add('selected');
       S.pendingMood=btn.dataset.mood;
-      toast('화면 반응 확인 완료. 실제 저장은 Hybrid 0.2에서 연결합니다.');
+      submitQuickMood(btn.dataset.mood);
     });
+    if($('homeSkipMoodBtn')) $('homeSkipMoodBtn').onclick=()=>{
+      document.querySelectorAll('.mood-btn,.quiet-choice').forEach(x=>x.classList.remove('selected'));
+      $('homeSkipMoodBtn').classList.add('selected');
+      S.pendingMood='skip';
+      submitQuickMood('skip');
+    };
     if($('revokeDeviceBtn')) $('revokeDeviceBtn').onclick=revokeCurrentDevice;
+    reflectPendingMoodState();
   }
 
   function renderStaffHome(){
@@ -323,14 +353,14 @@
 
   function renderAdminHome(){
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.3</p></div>
+      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.4</p></div>
       <div class="grid grid3">
         <section class="card"><h3>학교별 독립 DB</h3><p class="sub">이 학교의 학생·학부모·교직원 데이터는 이 학교의 Google Sheet에 저장됩니다.</p></section>
         <section class="card"><h3>학생 즉시접속</h3><p class="sub">개인기기 학생 화면은 즉시 표시하고 인증은 뒤에서 진행합니다. 민감정보는 인증 완료 후에만 표시됩니다.</p></section>
         <section class="card"><h3>상담정보 분리</h3><p class="sub">관리자 권한과 민감한 상담정보 열람권한은 분리하는 원칙을 유지합니다.</p></section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.3</span></div>
+        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.4</span></div>
         <div class="grid grid2"><button class="btn" id="accountBtn">학생·교직원 현황 불러오기</button><button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button></div>
         <div id="adminPane" style="margin-top:14px"></div>
       </section>`;
@@ -369,7 +399,7 @@
   async function changeCode(forced){
     try{
       const res=await window.MI_API.call('changeMyAccessCode',[S.sessionToken,($('oldCode').value||'').trim(),($('newCode').value||'').trim()]);
-      if(S.user?.role==='student') clearDeviceToken();
+      if(S.user?.role==='student'){ clearDeviceToken(); clearQuickWriteToken(); }
       closeModal(); toast(res.message||'접속코드를 변경했습니다.');
       if(forced){
         S.home=res.home || await window.MI_API.call('getHome',[S.sessionToken]);
@@ -383,7 +413,7 @@
     if(!confirm('이 기기의 자동접속을 해제할까요? 다음 접속부터 아이디와 접속코드를 다시 입력합니다.')) return;
     try{
       await window.MI_API.call('revokeMyDevice',[S.sessionToken,dt]);
-      clearDeviceToken(); toast('이 기기의 자동접속을 해제했습니다.'); renderStudentHome(false);
+      clearDeviceToken(); clearQuickWriteToken(); toast('이 기기의 자동접속을 해제했습니다.'); renderStudentHome(false);
     }catch(e){toast(e.message||String(e));}
   }
 
@@ -396,6 +426,7 @@
 
   function changeSchool(){
     localStorage.removeItem('mi_school_code');
+    clearQuickWriteToken();
     S.schoolCode='';S.school=null;S.config=null;S.sessionToken='';S.user=null;S.home=null;S.pendingMood='';
     window.MI_API.disconnect(); renderSchoolGate();
   }
@@ -416,6 +447,202 @@
     if(/iPhone|iPad|iPod/i.test(ua)) return 'iOS 개인기기';
     if(/Windows/i.test(ua)) return 'Windows 개인기기';
     return '개인기기';
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // Hybrid 0.1.4 quick mood write
+  // ---------------------------------------------------------------------------
+
+  function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}
+  function getQuickWriteToken(){return localStorage.getItem(quickTokenKey())||'';}
+  function setQuickWriteToken(v){
+    S.quickWriteToken=String(v||'');
+    if(S.quickWriteToken) localStorage.setItem(quickTokenKey(),S.quickWriteToken);
+  }
+  function clearQuickWriteToken(){
+    S.quickWriteToken='';
+    localStorage.removeItem(quickTokenKey());
+  }
+
+  function localDayKey(){
+    const d=new Date();
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    const day=String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${day}`;
+  }
+  function moodRecordKey(){return `mi_mood_record_${(S.schoolCode||'').toUpperCase()}_${localDayKey()}`;}
+  function pendingMoodKey(){return `mi_pending_mood_${(S.schoolCode||'').toUpperCase()}`;}
+
+  function randomRecordId(){
+    let r='';
+    if(window.crypto && crypto.randomUUID) r=crypto.randomUUID().replace(/-/g,'').toUpperCase();
+    else r=(Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)).toUpperCase();
+    return 'QMOOD-'+r.slice(0,40);
+  }
+
+  function getTodayRecordId(){
+    let id=localStorage.getItem(moodRecordKey())||'';
+    if(!/^QMOOD-[A-Z0-9_-]{8,72}$/.test(id)){
+      id=randomRecordId();
+      localStorage.setItem(moodRecordKey(),id);
+    }
+    return id;
+  }
+
+  function setPendingMoodRecord(mood){
+    const rec={
+      recordId:getTodayRecordId(),
+      mood:String(mood||''),
+      clientAt:new Date().toISOString(),
+      day:localDayKey()
+    };
+    // 민감정보 최소화: 이름/학생ID/메모는 저장하지 않고 전송 전의 감정 코드만 잠시 저장합니다.
+    localStorage.setItem(pendingMoodKey(),JSON.stringify(rec));
+    return rec;
+  }
+
+  function getPendingMoodRecord(){
+    try{
+      const raw=localStorage.getItem(pendingMoodKey());
+      if(!raw) return null;
+      const rec=JSON.parse(raw);
+      if(!rec || rec.day!==localDayKey() || !rec.recordId || !rec.mood){
+        localStorage.removeItem(pendingMoodKey());
+        return null;
+      }
+      return rec;
+    }catch(e){
+      localStorage.removeItem(pendingMoodKey());
+      return null;
+    }
+  }
+
+  function clearPendingMoodRecord(recordId){
+    const rec=getPendingMoodRecord();
+    if(!rec || !recordId || rec.recordId===recordId) localStorage.removeItem(pendingMoodKey());
+  }
+
+  function quickPostParams(rec){
+    const p=new URLSearchParams();
+    p.set('action','quickMood');
+    p.set('quickToken',getQuickWriteToken());
+    p.set('deviceToken',getDeviceToken()); // 0.1.3→0.1.4 첫 전환 때만 fallback
+    p.set('recordId',rec.recordId);
+    p.set('mood',rec.mood);
+    return p;
+  }
+
+  function fireQuickBeacon(rec){
+    if(!rec || !S.school?.bridgeUrl) return false;
+    if(!getQuickWriteToken() && !getDeviceToken()) return false;
+
+    const url=S.school.bridgeUrl;
+    const params=quickPostParams(rec);
+
+    try{
+      if(navigator.sendBeacon){
+        const queued=navigator.sendBeacon(url,params);
+        if(queued) return true;
+      }
+    }catch(e){}
+
+    // sendBeacon을 사용할 수 없는 브라우저용 fallback.
+    try{
+      fetch(url,{
+        method:'POST',
+        body:params,
+        mode:'no-cors',
+        credentials:'omit',
+        keepalive:true,
+        cache:'no-store'
+      }).catch(()=>{});
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+
+  async function submitQuickMood(mood){
+    const rec=setPendingMoodRecord(mood);
+    updateMoodSaveStatus('전송을 시작했어요. 창을 닫아도 계속 시도합니다.','sending');
+
+    // Bridge 연결 여부와 관계없이 먼저 unload-safe 전송을 큐에 넣습니다.
+    const queued=fireQuickBeacon(rec);
+    if(!queued){
+      updateMoodSaveStatus('기록을 잠시 보관했어요. 학교 서버가 연결되면 다시 보냅니다.','queued');
+    }
+
+    // Bridge가 이미 준비된 경우 같은 recordId로 확인용 RPC도 보냅니다.
+    // 서버는 upsert하므로 Beacon과 RPC가 둘 다 도착해도 한 행만 유지됩니다.
+    if(window.MI_API && window.MI_API.bridgeWindow){
+      try{
+        const res=await window.MI_API.call('quickSaveMood',[
+          getQuickWriteToken(),getDeviceToken(),rec.recordId,rec.mood
+        ]);
+        if(res && res.ok){
+          clearPendingMoodRecord(rec.recordId);
+          updateMoodSaveStatus('오늘 마음을 안전하게 저장했어요 ✓','saved');
+          return;
+        }
+      }catch(e){
+        updateMoodSaveStatus('전송을 계속 시도하고 있어요. 다음 접속 때도 자동으로 확인합니다.','queued');
+      }
+    }
+  }
+
+  async function flushPendingMoodRpc(){
+    const rec=getPendingMoodRecord();
+    if(!rec) return;
+    if(!window.MI_API || !window.MI_API.bridgeWindow) return;
+
+    // quick token은 resume/login 응답에서 갱신됩니다.
+    S.quickWriteToken=getQuickWriteToken();
+    try{
+      const res=await window.MI_API.call('quickSaveMood',[
+        getQuickWriteToken(),getDeviceToken(),rec.recordId,rec.mood
+      ]);
+      if(res && res.ok){
+        clearPendingMoodRecord(rec.recordId);
+        updateMoodSaveStatus('오늘 마음을 안전하게 저장했어요 ✓','saved');
+      }
+    }catch(e){
+      fireQuickBeacon(rec);
+      updateMoodSaveStatus('기록을 다시 전송하고 있어요.','queued');
+    }
+  }
+
+  function flushPendingMoodBeacon(){
+    const rec=getPendingMoodRecord();
+    if(rec) fireQuickBeacon(rec);
+  }
+
+  function updateMoodSaveStatus(text,state){
+    const pairs=[
+      ['moodSaveStatus','moodSaveText'],
+      ['homeMoodSaveStatus','homeMoodSaveText']
+    ];
+    pairs.forEach(([boxId,textId])=>{
+      const box=$(boxId), label=$(textId);
+      if(!box||!label) return;
+      box.classList.remove('idle','sending','queued','saved','error');
+      box.classList.add(state||'idle');
+      label.textContent=text||'';
+    });
+  }
+
+  function reflectPendingMoodState(){
+    const rec=getPendingMoodRecord();
+    if(rec){
+      S.pendingMood=rec.mood;
+      const selected=document.querySelector(`.mood-btn[data-mood="${CSS.escape(rec.mood)}"]`);
+      if(selected) selected.classList.add('selected');
+      if(rec.mood==='skip' && $('homeSkipMoodBtn')) $('homeSkipMoodBtn').classList.add('selected');
+      updateMoodSaveStatus('저장 확인을 기다리는 기록이 있어요. 자동으로 다시 전송합니다.','queued');
+      fireQuickBeacon(rec);
+      flushPendingMoodRpc();
+    }
   }
 
   function showModal(html){$('modalBody').innerHTML=html;$('modal').classList.remove('hidden');}

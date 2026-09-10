@@ -27,7 +27,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.1 속도시험판</b><br><span class="sub">현재는 학교 연결·로그인·학생 개인기기 자동접속 기반을 검증하는 단계입니다. 실제 학생 마음기록 운영에는 아직 사용하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.2 학생 빠른접속 시험판</b><br><span class="sub">현재는 학교 연결·로그인·학생 개인기기 자동접속 기반을 검증하는 단계입니다. 실제 학생 마음기록 운영에는 아직 사용하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -59,7 +59,7 @@
         try {
           const resumed = await window.MI_API.call('resumeStudent',[deviceToken]);
           await acceptLogin(resumed, true);
-          toast(`자동접속 완료 · ${elapsedSec(speedStart)}초`);
+          toast(`자동접속 완료 · ${elapsedSec(speedStart)}초${resServer(resumed)}`);
           return;
         } catch (e) {
           clearDeviceToken();
@@ -132,7 +132,7 @@
       if(res.deviceToken) setDeviceToken(res.deviceToken);
       $('loginCode').value='';
       await acceptLogin(res,false);
-      if(!res.mustChangeCode) toast(`접속 완료 · ${elapsedSec(speedStart)}초`);
+      if(!res.mustChangeCode) toast(`접속 완료 · ${elapsedSec(speedStart)}초${resServer(res)}`);
     }catch(e){toast(e.message||String(e));}
     finally{setBusy(false,'loginBtn','접속하기');}
   }
@@ -305,5 +305,6 @@
   function toast(msg){const el=$('toast');el.textContent=String(msg||'');el.classList.remove('hidden');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.add('hidden'),3500);}
   function setBusy(v,id,text){S.busy=v;const b=$(id);if(b){b.disabled=v;b.textContent=text;}}
   function elapsedSec(start){return Math.max(0,(performance.now()-start)/1000).toFixed(1);}
+  function resServer(res){return res&&Number.isFinite(Number(res.serverMs))?` · 서버 ${(Number(res.serverMs)/1000).toFixed(1)}초`:'';}
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 })();

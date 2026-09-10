@@ -27,7 +27,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1 시험판</b><br><span class="sub">현재는 학교 연결·로그인·학생 개인기기 자동접속 기반을 검증하는 단계입니다. 실제 학생 마음기록 운영에는 아직 사용하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.1 속도시험판</b><br><span class="sub">현재는 학교 연결·로그인·학생 개인기기 자동접속 기반을 검증하는 단계입니다. 실제 학생 마음기록 운영에는 아직 사용하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -55,9 +55,11 @@
       setHeader(true);
       const deviceToken = getDeviceToken();
       if (deviceToken) {
+        const speedStart = performance.now();
         try {
           const resumed = await window.MI_API.call('resumeStudent',[deviceToken]);
-          acceptLogin(resumed, true);
+          await acceptLogin(resumed, true);
+          toast(`자동접속 완료 · ${elapsedSec(speedStart)}초`);
           return;
         } catch (e) {
           clearDeviceToken();
@@ -83,7 +85,7 @@
   }
 
   function renderConnecting(name){
-    main().innerHTML=`<section class="card hero"><span class="school-badge">${esc(name)}</span><h2>마음이음을 준비하고 있어요</h2><div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><p class="sub">화면은 먼저 열고, 필요한 학교 데이터만 안전하게 연결합니다.</p></section>`;
+    main().innerHTML=`<section class="card hero"><span class="school-badge">${esc(name)}</span><h2>마음이음을 준비하고 있어요</h2><div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><p class="sub">화면은 먼저 열고, 필요한 학교 데이터만 한 번에 안전하게 연결합니다.</p></section>`;
   }
 
   function renderConnectionError(message){
@@ -122,12 +124,15 @@
     const code=($('loginCode').value||'').trim();
     const remember=$('rememberDevice').checked;
     if(!id||!code) return toast('아이디와 접속코드를 입력해 주세요.');
-    setBusy(true,'loginBtn','확인 중...');
+
+    const speedStart=performance.now();
+    setBusy(true,'loginBtn','마음이음을 여는 중...');
     try{
       const res=await window.MI_API.call('login',[id,code,remember,getDeviceAlias()]);
       if(res.deviceToken) setDeviceToken(res.deviceToken);
       $('loginCode').value='';
-      acceptLogin(res,false);
+      await acceptLogin(res,false);
+      if(!res.mustChangeCode) toast(`접속 완료 · ${elapsedSec(speedStart)}초`);
     }catch(e){toast(e.message||String(e));}
     finally{setBusy(false,'loginBtn','접속하기');}
   }
@@ -136,9 +141,13 @@
     S.sessionToken=res.token; S.user=res.user;
     setHeader(true);
     if(res.mustChangeCode){ showChangeCode(true); return; }
+
     try{
-      S.home=await window.MI_API.call('getHome',[S.sessionToken]);
+      // 0.1.1: 로그인/자동접속 응답에 home이 포함되므로
+      // 정상 경로에서는 getHome()을 다시 호출하지 않습니다.
+      S.home=res.home || await window.MI_API.call('getHome',[S.sessionToken]);
       S.user=S.home.user;
+      S.config=S.home.config || S.config;
       renderHome(auto);
     }catch(e){
       S.sessionToken=''; toast(e.message||String(e)); renderLogin();
@@ -194,14 +203,14 @@
 
   function renderAdminHome(){
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1</p></div>
+      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.1</p></div>
       <div class="grid grid3">
         <section class="card"><h3>학교별 독립 DB</h3><p class="sub">이 학교의 학생·학부모·교직원 데이터는 이 학교의 Google Sheet에 저장됩니다.</p></section>
         <section class="card"><h3>학생 자동접속</h3><p class="sub">개인기기 토큰은 학생 계정에만 발급하며 전출·졸업·사망·사용중지 시 자동 해제됩니다.</p></section>
         <section class="card"><h3>상담정보 분리</h3><p class="sub">관리자 권한과 민감한 상담정보 열람권한은 분리하는 원칙을 유지합니다.</p></section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1</span></div>
+        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.1</span></div>
         <div class="grid grid2"><button class="btn" id="accountBtn">학생·교직원 현황 불러오기</button><button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button></div>
         <div id="adminPane" style="margin-top:14px"></div>
       </section>`;
@@ -243,8 +252,9 @@
       if(S.user?.role==='student') clearDeviceToken();
       closeModal(); toast(res.message||'접속코드를 변경했습니다.');
       if(forced){
-        S.home=await window.MI_API.call('getHome',[S.sessionToken]);
-        S.user=S.home.user; renderHome(false);
+        // 0.1.1: 코드변경 응답에도 home을 함께 받아 추가 왕복을 없앱니다.
+        S.home=res.home || await window.MI_API.call('getHome',[S.sessionToken]);
+        S.user=S.home.user; S.config=S.home.config||S.config; renderHome(false);
       }
     }catch(e){toast(e.message||String(e));}
   }
@@ -294,5 +304,6 @@
   window.toast=toast;
   function toast(msg){const el=$('toast');el.textContent=String(msg||'');el.classList.remove('hidden');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.add('hidden'),3500);}
   function setBusy(v,id,text){S.busy=v;const b=$(id);if(b){b.disabled=v;b.textContent=text;}}
+  function elapsedSec(start){return Math.max(0,(performance.now()-start)/1000).toFixed(1);}
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 })();

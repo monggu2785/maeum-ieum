@@ -46,7 +46,13 @@
         throw new Error('학교코드와 연결된 Google 데이터가 서로 다릅니다. 학교 설정을 확인해 주세요.');
       }
 
-      const cfg = await this.call('getPublicConfig', []);
+      // 0.1.1: Bridge 준비 메시지에 공개 설정을 함께 실어 보내
+      // 별도의 getPublicConfig RPC 왕복을 없앱니다.
+      let cfg = ready.config || null;
+
+      // 이전 Bridge와도 연결될 수 있도록 한 번만 하위호환 fallback을 둡니다.
+      if (!cfg) cfg = await this.call('getPublicConfig', []);
+
       if (String(cfg.schoolCode || '').toUpperCase() !== this.schoolCode) {
         throw new Error('학교 설정 확인에 실패했습니다.');
       }

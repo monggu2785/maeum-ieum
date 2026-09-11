@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.6.2 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.7 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -342,23 +342,44 @@
 
   function renderStaffHome(){
     const u=S.home.user, list=S.home.students||[];
+    const moodSection = u.role==='homeroom' ? renderMoodDashboardSection() : '';
+
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(u.name)}님</h2><p>${esc(u.roleLabel)} 권한으로 접속했습니다.</p></div>
-      <div class="grid grid2">
-        <section class="card"><div class="section-title"><h3>접근 범위</h3><span class="badge">${list.length}명</span></div><p class="sub">현재 역할에 따라 접근 가능한 학생의 기본정보 범위를 확인합니다.</p>${renderStudentMiniList(list)}</section>
-        <section class="card"><div class="section-title"><h3>보안 원칙</h3><span class="badge">최소권한</span></div><div class="notice">교과교사는 상담 세부내용을 기본 열람하지 않고, 상담·보건교사도 필요한 지원권한이 부여된 학생만 민감정보에 접근하도록 확장합니다.</div><div style="height:12px"></div><button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button></section>
+      <div class="home-head">
+        <h2>${esc(u.name)}님</h2>
+        <p>${esc(u.roleLabel)} 권한으로 접속했습니다.</p>
+      </div>
+
+      ${moodSection}
+
+      <div class="grid grid2" style="margin-top:${u.role==='homeroom'?'15px':'0'}">
+        <section class="card">
+          <div class="section-title"><h3>접근 범위</h3><span class="badge">${list.length}명</span></div>
+          <p class="sub">현재 역할에 따라 접근 가능한 학생의 기본정보 범위를 확인합니다.</p>
+          ${renderStudentMiniList(list)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>보안 원칙</h3><span class="badge">최소권한</span></div>
+          <div class="notice">교과교사는 상담 세부내용을 기본 열람하지 않고, 상담·보건교사도 필요한 지원권한이 부여된 학생만 민감정보에 접근하도록 확장합니다.</div>
+          <div style="height:12px"></div>
+          <button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button>
+        </section>
       </div>`;
+
     $('changeCodeBtn').onclick=()=>showChangeCode(false);
+    if(u.role==='homeroom') bindMoodDashboard();
   }
 
   function renderAdminHome(){
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.6.2</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.7</p>
       </div>
 
-      <div class="grid grid3" id="adminSummary">
+      ${renderMoodDashboardSection()}
+
+      <div class="grid grid3" id="adminSummary" style="margin-top:15px">
         <section class="card">
           <div class="section-title"><h3>학생 계정</h3><span class="badge" id="sumStudents">확인 중</span></div>
           <p class="sub">재학생 계정의 등록·사용중지·접속코드 재발급을 관리합니다.</p>
@@ -399,7 +420,177 @@
     $('refreshAccountsBtn').onclick=loadAccounts;
     $('changeCodeBtn').onclick=()=>showChangeCode(false);
 
+    bindMoodDashboard();
     loadAccounts();
+  }
+
+
+  function renderMoodDashboardSection(){
+    return `
+      <section class="card" id="moodDashboardCard">
+        <div class="section-title">
+          <div>
+            <h3 style="margin-bottom:4px">오늘의 마음</h3>
+            <p class="sub" style="margin:0">관리자는 전체 학생, 담임은 자기 반 학생의 최신 기록만 확인합니다.</p>
+          </div>
+          <span class="badge" id="moodScopeBadge">조회 준비</span>
+        </div>
+
+        <div class="grid grid2" style="margin-top:12px">
+          <div class="field" style="margin:0">
+            <label for="moodDashboardDate">조회 날짜</label>
+            <input id="moodDashboardDate" type="date" value="${localDateInputValue()}">
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="btn secondary full" id="moodRefreshBtn" type="button">마음 현황 새로고침</button>
+          </div>
+        </div>
+
+        <div id="moodDashboardPane" style="margin-top:15px"></div>
+      </section>`;
+  }
+
+
+  function bindMoodDashboard(){
+    if(!$('moodRefreshBtn') || !$('moodDashboardDate')) return;
+    $('moodRefreshBtn').onclick=loadMoodDashboard;
+    $('moodDashboardDate').addEventListener('change',loadMoodDashboard);
+    loadMoodDashboard();
+  }
+
+
+  function localDateInputValue(){
+    const d=new Date();
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    const day=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+
+
+  function parseMoodDashboardPayload(raw){
+    let data=raw;
+    if(typeof raw==='string'){
+      try{data=JSON.parse(raw);}catch(e){
+        throw new Error('오늘의 마음 데이터 응답을 해석하지 못했습니다.');
+      }
+    }
+    if(!data || typeof data!=='object'){
+      throw new Error('오늘의 마음 데이터 응답이 비어 있습니다.');
+    }
+    return data;
+  }
+
+
+  async function loadMoodDashboard(){
+    if(!$('moodDashboardPane')) return;
+
+    const date=$('moodDashboardDate')?.value || localDateInputValue();
+    $('moodDashboardPane').innerHTML='<div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>';
+
+    try{
+      const raw=await window.MI_API.call('getMoodDashboard',[S.sessionToken,date]);
+      const data=parseMoodDashboardPayload(raw);
+      const summary=data.summary||{};
+      const counts=data.counts||{};
+      const records=Array.isArray(data.records)?data.records:[];
+      const missing=Array.isArray(data.missingStudents)?data.missingStudents:[];
+
+      if($('moodScopeBadge')) $('moodScopeBadge').textContent=data.scopeLabel||'조회 범위';
+
+      $('moodDashboardPane').innerHTML=`
+        <div class="grid grid3">
+          <section class="card">
+            <div class="section-title"><h3>응답</h3><span class="badge">${summary.responded||0}명</span></div>
+            <p class="sub">전체 ${summary.total||0}명 중 오늘 마음을 남긴 학생입니다.</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>미응답</h3><span class="badge gray">${summary.missing||0}명</span></div>
+            <p class="sub">아직 오늘 마음을 남기지 않은 학생입니다.</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>살펴보기</h3><span class="badge">${(summary.priority||0)+(summary.check||0)}명</span></div>
+            <p class="sub">‘힘들어요/많이 힘들어요’ 응답을 우선 확인합니다.</p>
+          </section>
+        </div>
+
+        <div class="notice" style="margin-top:14px">
+          <b>${esc(data.date||date)} 마음 분포</b><br>
+          <span class="sub">
+            😊 좋아요 ${counts.great||0} ·
+            🙂 괜찮아요 ${counts.good||0} ·
+            😐 그냥 그래요 ${counts.okay||0} ·
+            😟 힘들어요 ${counts.hard||0} ·
+            😢 많이 힘들어요 ${counts.veryhard||0} ·
+            말하고 싶지 않음 ${counts.skip||0}
+          </span>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>응답 학생</h3><span class="badge">${records.length}명</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>학생</th><th>학년-반</th><th>번호</th><th>마음</th><th>기록시각</th><th>확인</th></tr>
+            </thead>
+            <tbody>
+              ${records.length ? records.map(r=>`
+                <tr>
+                  <td><b>${esc(r.name)}</b></td>
+                  <td>${esc(r.grade)}-${esc(r.classNo)}</td>
+                  <td>${esc(r.number||'-')}</td>
+                  <td>${esc(r.mood||'-')}</td>
+                  <td>${esc(r.recordedAt||'-')}</td>
+                  <td>${moodAttentionBadge(r.attention,r.attentionLabel)}</td>
+                </tr>`).join('')
+                : '<tr><td colspan="6" class="empty">이 날짜에 기록된 오늘의 마음이 없습니다.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+        <details style="margin-top:16px">
+          <summary style="cursor:pointer;font-weight:700">미응답 학생 ${missing.length}명 보기</summary>
+          <div class="table-wrap" style="margin-top:10px">
+            <table>
+              <thead><tr><th>학생</th><th>학년-반</th><th>번호</th></tr></thead>
+              <tbody>
+                ${missing.length ? missing.map(r=>`
+                  <tr>
+                    <td>${esc(r.name)}</td>
+                    <td>${esc(r.grade)}-${esc(r.classNo)}</td>
+                    <td>${esc(r.number||'-')}</td>
+                  </tr>`).join('')
+                  : '<tr><td colspan="3" class="empty">모든 학생이 응답했습니다.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'확인 안 됨')}</p>
+      `;
+    }catch(e){
+      if($('moodScopeBadge')) $('moodScopeBadge').textContent='조회 실패';
+      $('moodDashboardPane').innerHTML=`
+        <div class="notice danger">
+          <b>오늘의 마음 연결 오류</b><br>${esc(e.message||String(e))}
+        </div>`;
+    }
+  }
+
+
+  function moodAttentionBadge(kind,label){
+    if(kind==='priority'){
+      return '<span class="badge" style="background:#fde4e4;color:#9b1c1c">우선 살펴보기</span>';
+    }
+    if(kind==='check'){
+      return '<span class="badge" style="background:#fff0d8;color:#8a4b00">살펴보기</span>';
+    }
+    if(kind==='quiet'){
+      return '<span class="badge gray">응답 보류</span>';
+    }
+    return `<span class="badge">${esc(label||'일반')}</span>`;
   }
 
 
@@ -411,7 +602,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.6.2로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.7로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -535,7 +726,14 @@
     const parts=[];
     if(r.grade) parts.push(`${r.grade}학년`);
     if(r.classNo) parts.push(`${r.classNo}반`);
-    if(r.scope) parts.push(r.scope);
+
+    const role=String(r.role||'');
+    const scope=String(r.scope||'').trim();
+    const looksLikeDate=/GMT[+-]\d{4}|^[A-Z][a-z]{2}\s[A-Z][a-z]{2}\s\d{2}\s\d{4}/.test(scope);
+
+    // 담임은 학년·반 표시가 담당범위 자체이므로 중복 '1-1'은 생략합니다.
+    if(scope && role!=='담임' && !looksLikeDate) parts.push(scope);
+
     return parts.join(' ')||'-';
   }
 
@@ -913,7 +1111,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.6.2 quick mood write
+  // Hybrid 0.1.7 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

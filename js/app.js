@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.6 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.6.1 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -355,7 +355,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.6</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.6.1</p>
       </div>
 
       <div class="grid grid3" id="adminSummary">
@@ -399,21 +399,21 @@
     $('refreshAccountsBtn').onclick=loadAccounts;
     $('changeCodeBtn').onclick=()=>showChangeCode(false);
 
-    loadAdminSummary();
     loadAccounts();
   }
 
 
-  async function loadAdminSummary(){
-    try{
-      const data=await window.MI_API.call('adminAccountSummary',[S.sessionToken]);
-      const st=data.students||{}, sf=data.staff||{};
-      if($('sumStudents')) $('sumStudents').textContent=`사용 ${st.active||0} / 전체 ${st.total||0}`;
-      if($('sumStaff')) $('sumStaff').textContent=`사용 ${sf.active||0} / 전체 ${sf.total||0}`;
-    }catch(e){
-      if($('sumStudents')) $('sumStudents').textContent='확인 실패';
-      if($('sumStaff')) $('sumStaff').textContent='확인 실패';
+  function parseAdminDashboardPayload(raw){
+    let data=raw;
+    if(typeof raw==='string'){
+      try{data=JSON.parse(raw);}catch(e){
+        throw new Error('관리자 데이터 응답을 해석하지 못했습니다.');
+      }
     }
+    if(!data || typeof data!=='object'){
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.6.1로 배포되었는지 확인해 주세요.');
+    }
+    return data;
   }
 
 
@@ -422,8 +422,16 @@
     $('adminPane').innerHTML='<div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>';
 
     try{
-      const data=await window.MI_API.call('adminListAccounts',[S.sessionToken]);
-      const students=data.students||[], staff=data.staff||[];
+      const raw=await window.MI_API.call('adminGetAccountDashboard',[S.sessionToken]);
+      const data=parseAdminDashboardPayload(raw);
+      const students=Array.isArray(data.students)?data.students:[];
+      const staff=Array.isArray(data.staff)?data.staff:[];
+      const summary=data.summary||{};
+      const stSummary=summary.students||{};
+      const sfSummary=summary.staff||{};
+
+      if($('sumStudents')) $('sumStudents').textContent=`사용 ${stSummary.active||0} / 전체 ${stSummary.total||students.length}`;
+      if($('sumStaff')) $('sumStaff').textContent=`사용 ${sfSummary.active||0} / 전체 ${sfSummary.total||staff.length}`;
 
       $('adminPane').innerHTML=`
         <div class="section-title">
@@ -502,7 +510,8 @@
                 : '<tr><td colspan="8" class="empty">교직원 없음</td></tr>'}
             </tbody>
           </table>
-        </div>`;
+        </div>
+        <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'확인 안 됨')}</p>`;
 
       document.querySelectorAll('.admin-action').forEach(btn=>{
         btn.addEventListener('click',()=>handleAdminAction(btn));
@@ -510,7 +519,9 @@
 
       loadAdminSummary();
     }catch(e){
-      $('adminPane').innerHTML=`<div class="notice danger">${esc(e.message||String(e))}</div>`;
+      if($('sumStudents')) $('sumStudents').textContent='확인 실패';
+      if($('sumStaff')) $('sumStaff').textContent='확인 실패';
+      $('adminPane').innerHTML=`<div class="notice danger"><b>관리자 데이터 연결 오류</b><br>${esc(e.message||String(e))}</div>`;
     }
   }
 
@@ -903,7 +914,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.6 quick mood write
+  // Hybrid 0.1.6.1 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

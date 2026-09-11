@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.7 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.8 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -374,7 +374,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.7</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.8</p>
       </div>
 
       ${renderMoodDashboardSection()}
@@ -533,7 +533,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>학생</th><th>학년-반</th><th>번호</th><th>마음</th><th>기록시각</th><th>확인</th></tr>
+              <tr><th>학생</th><th>학년-반</th><th>번호</th><th>마음</th><th>기록시각</th><th>확인</th><th>지원</th></tr>
             </thead>
             <tbody>
               ${records.length ? records.map(r=>`
@@ -544,8 +544,9 @@
                   <td>${esc(r.mood||'-')}</td>
                   <td>${esc(r.recordedAt||'-')}</td>
                   <td>${moodAttentionBadge(r.attention,r.attentionLabel)}</td>
+                  <td><button class="btn ghost small mood-student-flow" type="button" data-student-id="${esc(r.studentId)}" data-student-name="${esc(r.name)}">학생 흐름</button></td>
                 </tr>`).join('')
-                : '<tr><td colspan="6" class="empty">이 날짜에 기록된 오늘의 마음이 없습니다.</td></tr>'}
+                : '<tr><td colspan="7" class="empty">이 날짜에 기록된 오늘의 마음이 없습니다.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -570,12 +571,200 @@
 
         <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'확인 안 됨')}</p>
       `;
+
+      document.querySelectorAll('.mood-student-flow').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          openStudentSupport(
+            btn.dataset.studentId||'',
+            btn.dataset.studentName||''
+          );
+        });
+      });
     }catch(e){
       if($('moodScopeBadge')) $('moodScopeBadge').textContent='조회 실패';
       $('moodDashboardPane').innerHTML=`
         <div class="notice danger">
           <b>오늘의 마음 연결 오류</b><br>${esc(e.message||String(e))}
         </div>`;
+    }
+  }
+
+
+  function parseSupportPayload(raw){
+    let data=raw;
+    if(typeof raw==='string'){
+      try{data=JSON.parse(raw);}catch(e){
+        throw new Error('학생 지원 데이터 응답을 해석하지 못했습니다.');
+      }
+    }
+    if(!data || typeof data!=='object'){
+      throw new Error('학생 지원 데이터 응답이 비어 있습니다.');
+    }
+    return data;
+  }
+
+
+  async function openStudentSupport(studentId,studentName){
+    const id=String(studentId||'').trim();
+    if(!id) return;
+
+    showModal(`
+      <div class="modal-head">
+        <h3>${esc(studentName||id)} · 학생 마음 흐름</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <div id="studentSupportPane">
+        <div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+      </div>
+    `);
+
+    await loadStudentSupport(id);
+  }
+
+
+  async function loadStudentSupport(studentId){
+    const pane=$('studentSupportPane');
+    if(!pane) return;
+
+    try{
+      const raw=await window.MI_API.call('getStudentSupportOverview',[
+        S.sessionToken,studentId,14
+      ]);
+      const data=parseSupportPayload(raw);
+      const s=data.student||{};
+      const summary=data.summary||{};
+      const moods=Array.isArray(data.moodHistory)?data.moodHistory:[];
+      const observations=Array.isArray(data.observations)?data.observations:[];
+
+      pane.innerHTML=`
+        <div class="notice">
+          <b>${esc(s.name||'')} · ${esc(s.grade||'')}-${esc(s.classNo||'')} ${s.number?esc(s.number)+'번':''}</b><br>
+          <span class="sub">${esc(data.note||'')}</span>
+        </div>
+
+        <div class="grid grid3" style="margin-top:14px">
+          <section class="card">
+            <div class="section-title"><h3>최근 응답</h3><span class="badge">${summary.respondedDays||0}일</span></div>
+            <p class="sub">최근 ${data.rangeDays||14}일 중 마음을 남긴 날짜 수입니다.</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>살펴보기 응답</h3><span class="badge">${summary.hardOrMore||0}회</span></div>
+            <p class="sub">‘힘들어요’ 이상 응답 횟수입니다. 단독으로 상태를 판단하지 않습니다.</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>최근 마음</h3><span class="badge">${esc(summary.latestMood||'없음')}</span></div>
+            <p class="sub">${summary.latestDate?esc(summary.latestDate):'최근 기록이 없습니다.'}</p>
+          </section>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>최근 마음 흐름</h3><span class="badge">${moods.length}일</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>날짜</th><th>마음</th><th>기록시각</th><th>확인</th></tr></thead>
+            <tbody>
+              ${moods.length ? moods.slice().reverse().map(r=>`
+                <tr>
+                  <td>${esc(r.date||'')}</td>
+                  <td>${esc(r.mood||'-')}</td>
+                  <td>${esc(r.recordedAt||'-')}</td>
+                  <td>${moodAttentionBadge(r.attention,r.attentionLabel)}</td>
+                </tr>`).join('')
+                : '<tr><td colspan="4" class="empty">최근 마음 기록이 없습니다.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>교사 관찰기록</h3><span class="badge">${observations.length}건</span>
+        </div>
+
+        ${observations.length ? `
+          <div class="list">
+            ${observations.map(o=>`
+              <div class="row" style="align-items:flex-start">
+                <div>
+                  <b>${esc(o.signal||'관찰')}</b>
+                  <div class="sub" style="margin-top:4px">${esc(o.memo||'')}</div>
+                  <small>${esc(o.recordedAt||'')} · ${esc(o.teacherName||o.teacherId||'')} ${o.teacherRole?'· '+esc(o.teacherRole):''}</small>
+                </div>
+                <span class="badge gray">${esc(o.state||'')}</span>
+              </div>`).join('')}
+          </div>` :
+          '<div class="empty">아직 등록된 교사 관찰기록이 없습니다.</div>'}
+
+        ${data.viewer?.canWriteObservation ? `
+          <section class="card" style="margin-top:18px">
+            <div class="section-title">
+              <h3>담임 관찰 기록</h3><span class="badge">사실 중심</span>
+            </div>
+            <p class="sub">판단이나 진단보다는 수업·친구관계·표정·출결 등 실제로 관찰한 변화를 간단히 기록합니다.</p>
+
+            <div class="field">
+              <label>관찰 유형</label>
+              <select id="teacherObservationSignal">
+                <option value="">선택해 주세요</option>
+                <option value="수업 참여 변화">수업 참여 변화</option>
+                <option value="친구관계 걱정">친구관계 걱정</option>
+                <option value="표정·기분 변화">표정·기분 변화</option>
+                <option value="결석·지각 변화">결석·지각 변화</option>
+                <option value="학습·집중 변화">학습·집중 변화</option>
+                <option value="건강·피로">건강·피로</option>
+                <option value="도움이 필요해 보임">도움이 필요해 보임</option>
+                <option value="기타">기타</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>관찰 내용</label>
+              <textarea id="teacherObservationMemo" rows="4" maxlength="500" placeholder="예: 3교시부터 평소보다 말수가 줄었고, 모둠활동에 참여하지 않고 혼자 앉아 있었음."></textarea>
+            </div>
+
+            <button class="btn full" id="teacherObservationSubmit" type="button">관찰기록 저장</button>
+          </section>` : ''}
+
+        <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'')}</p>
+      `;
+
+      if(data.viewer?.canWriteObservation && $('teacherObservationSubmit')){
+        $('teacherObservationSubmit').onclick=()=>submitTeacherObservationFromModal(studentId);
+      }
+    }catch(e){
+      pane.innerHTML=`
+        <div class="notice danger">
+          <b>학생 지원 정보 연결 오류</b><br>${esc(e.message||String(e))}
+        </div>`;
+    }
+  }
+
+
+  async function submitTeacherObservationFromModal(studentId){
+    if(S.busy) return;
+
+    const signal=$('teacherObservationSignal')?.value||'';
+    const memo=($('teacherObservationMemo')?.value||'').trim();
+
+    if(!signal) return toast('관찰 유형을 선택해 주세요.');
+    if(!memo) return toast('관찰 내용을 입력해 주세요.');
+
+    const btn=$('teacherObservationSubmit');
+    S.busy=true;
+    if(btn) btn.disabled=true;
+
+    try{
+      const raw=await window.MI_API.call('submitTeacherObservation',[
+        S.sessionToken,studentId,signal,memo
+      ]);
+      const res=parseSupportPayload(raw);
+      toast(res.message||'교사 관찰기록을 저장했습니다.');
+      await loadStudentSupport(studentId);
+    }catch(e){
+      toast(e.message||String(e));
+      if(btn) btn.disabled=false;
+    }finally{
+      S.busy=false;
     }
   }
 
@@ -602,7 +791,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.7로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.8로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -1111,7 +1300,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.7 quick mood write
+  // Hybrid 0.1.8 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

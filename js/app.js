@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.2.0 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.2.1 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -343,6 +343,9 @@
   function renderStaffHome(){
     const u=S.home.user, list=S.home.students||[];
     const moodSection = u.role==='homeroom' ? renderMoodDashboardSection() : '';
+    const attentionSection = ['homeroom','counselor','health'].includes(u.role)
+      ? renderTodayAttentionSection()
+      : '';
 
     main().innerHTML=`
       <div class="home-head">
@@ -350,9 +353,10 @@
         <p>${esc(u.roleLabel)} 권한으로 접속했습니다.</p>
       </div>
 
+      ${attentionSection}
       ${moodSection}
 
-      <div class="grid grid2" style="margin-top:${u.role==='homeroom'?'15px':'0'}">
+      <div class="grid grid2" style="margin-top:${(u.role==='homeroom'||attentionSection)?'15px':'0'}">
         <section class="card">
           <div class="section-title"><h3>접근 범위</h3><span class="badge">${list.length}명</span></div>
           <p class="sub">현재 역할에 따라 접근 가능한 학생의 기본정보 범위를 확인합니다.</p>
@@ -377,6 +381,7 @@
       });
     });
 
+    if(['homeroom','counselor','health'].includes(u.role)) bindTodayAttentionBoard();
     if(u.role==='homeroom') bindMoodDashboard();
   }
 
@@ -384,7 +389,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.2.0</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.2.1</p>
       </div>
 
       ${renderMoodDashboardSection()}
@@ -432,6 +437,137 @@
 
     bindMoodDashboard();
     loadAccounts();
+  }
+
+
+  function renderTodayAttentionSection(){
+    return `
+      <section class="card" id="todayAttentionCard">
+        <div class="section-title">
+          <div>
+            <h3 style="margin-bottom:4px">오늘 확인해야 할 학생</h3>
+            <p class="sub" style="margin:0">진단이나 위험점수가 아니라, 오늘 놓치지 말아야 할 확인 업무를 근거와 함께 정리합니다.</p>
+          </div>
+          <span class="badge" id="attentionScopeBadge">조회 준비</span>
+        </div>
+
+        <div id="todayAttentionPane" style="margin-top:14px"></div>
+      </section>`;
+  }
+
+
+  function bindTodayAttentionBoard(){
+    loadTodayAttentionBoard();
+  }
+
+
+  async function loadTodayAttentionBoard(){
+    const pane=$('todayAttentionPane');
+    if(!pane) return;
+
+    pane.innerHTML='<div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>';
+
+    try{
+      const raw=await window.MI_API.call('getTodayAttentionBoard',[S.sessionToken]);
+      const data=parseSupportPayload(raw);
+      const counts=data.counts||{};
+      const items=Array.isArray(data.items)?data.items:[];
+
+      if($('attentionScopeBadge')) $('attentionScopeBadge').textContent=data.scopeLabel||'지원 범위';
+
+      pane.innerHTML=`
+        <div class="grid grid3">
+          <section class="card">
+            <div class="section-title">
+              <h3>바로 직접 확인</h3>
+              <span class="badge">${counts.direct||0}명</span>
+            </div>
+            <p class="sub">긴급 도움요청 또는 교사가 직접 ‘즉시확인필요’로 기록한 경우입니다.</p>
+          </section>
+
+          <section class="card">
+            <div class="section-title">
+              <h3>오늘 우선 확인</h3>
+              <span class="badge">${counts.today||0}명</span>
+            </div>
+            <p class="sub">도움요청, 많이 힘들어요, 오늘·지난 후속확인 등을 확인합니다.</p>
+          </section>
+
+          <section class="card">
+            <div class="section-title">
+              <h3>살펴보기</h3>
+              <span class="badge gray">${counts.watch||0}명</span>
+            </div>
+            <p class="sub">최근 걱정신호나 힘들어요 응답 등 대화가 도움이 될 수 있는 경우입니다.</p>
+          </section>
+        </div>
+
+        <div class="notice" style="margin-top:14px">
+          <b>${esc(data.date||'오늘')} · ${counts.total||0}명</b><br>
+          <span class="sub">${esc(data.note||'')}</span>
+        </div>
+
+        <div style="margin-top:14px">
+          ${items.length ? items.map(item=>todayAttentionItemHtml(item)).join('') :
+            '<div class="empty">현재 우선 확인 목록이 없습니다.</div>'}
+        </div>
+
+        <p class="sub" style="margin-top:10px;text-align:right">백엔드 ${esc(data.backendVersion||'')}</p>
+      `;
+
+      document.querySelectorAll('.attention-open-student').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          openStudentSupport(
+            btn.dataset.studentId||'',
+            btn.dataset.studentName||''
+          );
+        });
+      });
+    }catch(e){
+      if($('attentionScopeBadge')) $('attentionScopeBadge').textContent='조회 실패';
+      pane.innerHTML=`
+        <div class="notice danger">
+          <b>오늘 우선확인 보드 연결 오류</b><br>${esc(e.message||String(e))}
+        </div>`;
+    }
+  }
+
+
+  function todayAttentionItemHtml(item){
+    const s=item.student||{};
+    const reasons=Array.isArray(item.reasons)?item.reasons:[];
+
+    const badgeStyle =
+      item.level==='direct'
+        ? 'background:#fde4e4;color:#9b1c1c'
+        : item.level==='today'
+          ? 'background:#fff0d8;color:#8a4b00'
+          : '';
+
+    return `
+      <section class="card" style="margin-bottom:10px">
+        <div class="section-title">
+          <div>
+            <h3 style="margin-bottom:3px">${esc(s.name||'')} <span class="sub">${esc(s.grade||'')}-${esc(s.classNo||'')} ${s.number?esc(s.number)+'번':''}</span></h3>
+          </div>
+          <span class="badge" style="${badgeStyle}">${esc(item.levelLabel||'살펴보기')}</span>
+        </div>
+
+        <div style="margin-top:8px">
+          ${reasons.map(r=>`
+            <div class="notice" style="margin-top:7px">
+              <b>${esc(r.label||'확인 필요')}</b>
+              ${r.detail?`<br><span class="sub">${esc(r.detail)}</span>`:''}
+            </div>`).join('')}
+        </div>
+
+        <div style="margin-top:10px">
+          <button class="btn secondary full attention-open-student"
+                  type="button"
+                  data-student-id="${esc(s.id||'')}"
+                  data-student-name="${esc(s.name||'')}">학생 지원 열기</button>
+        </div>
+      </section>`;
   }
 
 
@@ -1213,7 +1349,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.2.0로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.2.1로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -1739,7 +1875,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.2.0 quick mood write
+  // Hybrid 0.2.1 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

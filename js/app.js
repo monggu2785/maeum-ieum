@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.6.1 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.6.2 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -355,7 +355,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.6.1</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.6.2</p>
       </div>
 
       <div class="grid grid3" id="adminSummary">
@@ -411,7 +411,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.6.1로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.6.2로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -517,7 +517,6 @@
         btn.addEventListener('click',()=>handleAdminAction(btn));
       });
 
-      loadAdminSummary();
     }catch(e){
       if($('sumStudents')) $('sumStudents').textContent='확인 실패';
       if($('sumStaff')) $('sumStaff').textContent='확인 실패';
@@ -914,7 +913,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.6.1 quick mood write
+  // Hybrid 0.1.6.2 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

@@ -12,6 +12,8 @@
       this.schoolCode = '';
       this.pending = new Map();
       this.readyPromise = null;
+      this._readyResolve = null;
+      this._readyReject = null;
       this._onMessage = this._onMessage.bind(this);
       window.addEventListener('message', this._onMessage);
     }
@@ -25,9 +27,25 @@
       }
 
       this.readyPromise = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Google 서버 연결 시간이 초과되었습니다. Apps Script 배포 주소와 접근 권한을 확인해 주세요.')), 20000);
-        this._readyResolve = payload => { clearTimeout(timer); resolve(payload); };
-        this._readyReject = error => { clearTimeout(timer); reject(error); };
+        const timer = setTimeout(() => {
+          this._readyResolve = null;
+          this._readyReject = null;
+          reject(new Error('Google 서버 연결 시간이 초과되었습니다. Apps Script 배포 주소와 접근 권한을 확인해 주세요.'));
+        }, 20000);
+
+        this._readyResolve = payload => {
+          clearTimeout(timer);
+          this._readyResolve = null;
+          this._readyReject = null;
+          resolve(payload);
+        };
+
+        this._readyReject = error => {
+          clearTimeout(timer);
+          this._readyResolve = null;
+          this._readyReject = null;
+          reject(error);
+        };
       });
 
       const iframe = document.createElement('iframe');
@@ -35,27 +53,26 @@
       iframe.title = '마음이음 Google 연결';
       iframe.setAttribute('aria-hidden','true');
       iframe.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none;';
+
       const join = execUrl.includes('?') ? '&' : '?';
       iframe.src = execUrl + join + 'mode=bridge&_=' + Date.now();
       document.body.appendChild(iframe);
       this.iframe = iframe;
 
       const ready = await this.readyPromise;
+
       if (String(ready.schoolCode || '').toUpperCase() !== this.schoolCode) {
         this.disconnect();
         throw new Error('학교코드와 연결된 Google 데이터가 서로 다릅니다. 학교 설정을 확인해 주세요.');
       }
 
-      // 0.1.1: Bridge 준비 메시지에 공개 설정을 함께 실어 보내
-      // 별도의 getPublicConfig RPC 왕복을 없앱니다.
       let cfg = ready.config || null;
-
-      // 이전 Bridge와도 연결될 수 있도록 한 번만 하위호환 fallback을 둡니다.
       if (!cfg) cfg = await this.call('getPublicConfig', []);
 
       if (String(cfg.schoolCode || '').toUpperCase() !== this.schoolCode) {
         throw new Error('학교 설정 확인에 실패했습니다.');
       }
+
       return cfg;
     }
 
@@ -65,20 +82,36 @@
       this.bridgeWindow = null;
       this.bridgeOrigin = '';
       this.schoolCode = '';
-      this.pending.forEach(p => p.reject(new Error('연결이 종료되었습니다.')));
+      this.readyPromise = null;
+      this._readyResolve = null;
+      this._readyReject = null;
+
+      this.pending.forEach(p => {
+        clearTimeout(p.timer);
+        p.reject(new Error('연결이 종료되었습니다.'));
+      });
       this.pending.clear();
     }
 
     call(method, args = []){
-      if (!this.bridgeWindow || !this.bridgeOrigin) return Promise.reject(new Error('Google 서버가 아직 연결되지 않았습니다.'));
+      if (!this.bridgeWindow || !this.bridgeOrigin) {
+        return Promise.reject(new Error('Google 서버가 아직 연결되지 않았습니다.'));
+      }
+
       const id = 'rpc-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           this.pending.delete(id);
           reject(new Error('요청 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.'));
         }, 25000);
+
         this.pending.set(id,{resolve,reject,timer});
-        this.bridgeWindow.postMessage({bridge:BRIDGE,type:'rpc',id,method,args},this.bridgeOrigin);
+
+        this.bridgeWindow.postMessage(
+          {bridge:BRIDGE,type:'rpc',id,method,args},
+          this.bridgeOrigin
+        );
       });
     }
 
@@ -89,8 +122,10 @@
 
       if (msg.type === 'ready') {
         if (this.schoolCode && String(msg.schoolCode || '').toUpperCase() !== this.schoolCode) return;
+
         this.bridgeWindow = event.source;
         this.bridgeOrigin = event.origin;
+
         if (this._readyResolve) this._readyResolve(msg);
         return;
       }
@@ -98,8 +133,10 @@
       if (msg.type === 'rpc-result' && msg.id) {
         const p = this.pending.get(msg.id);
         if (!p) return;
+
         clearTimeout(p.timer);
         this.pending.delete(msg.id);
+
         if (msg.ok) p.resolve(msg.result);
         else p.reject(new Error(msg.error || '서버 처리 중 오류가 발생했습니다.'));
       }

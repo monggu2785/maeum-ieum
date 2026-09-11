@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.4 빠른기록 기반판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.6 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -316,7 +316,7 @@
         </section>
       </div>
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>0.1.4 빠른기록 확인</h3><span class="badge">정상</span></div>
+        <div class="section-title"><h3>0.1.6 빠른기록 확인</h3><span class="badge">정상</span></div>
         <div class="notice">GitHub 화면은 즉시 표시하고, 학교별 Apps Script 인증은 뒤에서 완료합니다. 개인정보와 과거 기록은 인증 전에는 표시하지 않습니다.</div>
       </section>`;
 
@@ -353,33 +353,485 @@
 
   function renderAdminHome(){
     main().innerHTML=`
-      <div class="home-head"><h2>${esc(S.home.user.name)}님</h2><p>마음이음 학교 관리자 · Hybrid 0.1.4</p></div>
-      <div class="grid grid3">
-        <section class="card"><h3>학교별 독립 DB</h3><p class="sub">이 학교의 학생·학부모·교직원 데이터는 이 학교의 Google Sheet에 저장됩니다.</p></section>
-        <section class="card"><h3>학생 즉시접속</h3><p class="sub">개인기기 학생 화면은 즉시 표시하고 인증은 뒤에서 진행합니다. 민감정보는 인증 완료 후에만 표시됩니다.</p></section>
-        <section class="card"><h3>상담정보 분리</h3><p class="sub">관리자 권한과 민감한 상담정보 열람권한은 분리하는 원칙을 유지합니다.</p></section>
+      <div class="home-head">
+        <h2>${esc(S.home.user.name)}님</h2>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.6</p>
       </div>
+
+      <div class="grid grid3" id="adminSummary">
+        <section class="card">
+          <div class="section-title"><h3>학생 계정</h3><span class="badge" id="sumStudents">확인 중</span></div>
+          <p class="sub">재학생 계정의 등록·사용중지·접속코드 재발급을 관리합니다.</p>
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>교직원 계정</h3><span class="badge" id="sumStaff">확인 중</span></div>
+          <p class="sub">담임·교과·상담·보건·관리자 계정과 승인 상태를 관리합니다.</p>
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>운영 DB</h3><span class="badge">새 DB</span></div>
+          <p class="sub">현재 마음이음 데이터는 이전 완료한 학교 운영 DB에 저장됩니다.</p>
+        </section>
+      </div>
+
       <section class="card" style="margin-top:15px">
-        <div class="section-title"><h3>기반 기능 테스트</h3><span class="badge">0.1.4</span></div>
-        <div class="grid grid2"><button class="btn" id="accountBtn">학생·교직원 현황 불러오기</button><button class="btn secondary" id="changeCodeBtn">내 접속코드 변경</button></div>
-        <div id="adminPane" style="margin-top:14px"></div>
+        <div class="section-title">
+          <h3>계정 관리</h3>
+          <span class="badge">관리자 전용</span>
+        </div>
+
+        <div class="grid grid2">
+          <button class="btn" id="createStudentBtn" type="button">학생 신규등록</button>
+          <button class="btn" id="createStaffBtn" type="button">교직원 신규등록</button>
+          <button class="btn secondary" id="refreshAccountsBtn" type="button">학생·교직원 현황 새로고침</button>
+          <button class="btn secondary" id="changeCodeBtn" type="button">내 접속코드 변경</button>
+        </div>
+
+        <div class="notice" style="margin-top:14px">
+          <b>운영 원칙</b><br>
+          <span class="sub">계정을 행에서 직접 삭제하지 않고 사용중지·재적상태 변경으로 관리해 이력을 보존합니다. 접속코드 원문은 DB에 저장하지 않습니다.</span>
+        </div>
+
+        <div id="adminPane" style="margin-top:16px"></div>
       </section>`;
-    $('accountBtn').onclick=loadAccounts;
+
+    $('createStudentBtn').onclick=showCreateStudent;
+    $('createStaffBtn').onclick=showCreateStaff;
+    $('refreshAccountsBtn').onclick=loadAccounts;
     $('changeCodeBtn').onclick=()=>showChangeCode(false);
+
+    loadAdminSummary();
+    loadAccounts();
   }
 
+
+  async function loadAdminSummary(){
+    try{
+      const data=await window.MI_API.call('adminAccountSummary',[S.sessionToken]);
+      const st=data.students||{}, sf=data.staff||{};
+      if($('sumStudents')) $('sumStudents').textContent=`사용 ${st.active||0} / 전체 ${st.total||0}`;
+      if($('sumStaff')) $('sumStaff').textContent=`사용 ${sf.active||0} / 전체 ${sf.total||0}`;
+    }catch(e){
+      if($('sumStudents')) $('sumStudents').textContent='확인 실패';
+      if($('sumStaff')) $('sumStaff').textContent='확인 실패';
+    }
+  }
+
+
   async function loadAccounts(){
+    if(!$('adminPane')) return;
     $('adminPane').innerHTML='<div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>';
+
     try{
       const data=await window.MI_API.call('adminListAccounts',[S.sessionToken]);
       const students=data.students||[], staff=data.staff||[];
+
       $('adminPane').innerHTML=`
-        <div class="section-title"><h3>학생</h3><span class="badge">${students.length}명</span></div>
-        <div class="table-wrap"><table><thead><tr><th>ID</th><th>이름</th><th>학년-반</th><th>재적</th><th>사용</th><th>최근접속</th></tr></thead><tbody>${students.length?students.map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.grade)}-${esc(r.classNo)}</td><td>${esc(r.enrollmentState)}</td><td>${esc(r.state)}</td><td>${esc(r.lastLogin||'-')}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">학생 없음</td></tr>'}</tbody></table></div>
-        <div class="section-title" style="margin-top:16px"><h3>교직원</h3><span class="badge">${staff.length}명</span></div>
-        <div class="table-wrap"><table><thead><tr><th>ID</th><th>이름</th><th>역할</th><th>재직</th><th>승인</th><th>사용</th></tr></thead><tbody>${staff.length?staff.map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(r.name)}</td><td>${esc(r.role)}</td><td>${esc(r.employmentState)}</td><td>${esc(r.approval)}</td><td>${esc(r.state)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">교직원 없음</td></tr>'}</tbody></table></div>`;
-    }catch(e){$('adminPane').innerHTML=`<div class="notice danger">${esc(e.message||String(e))}</div>`;}
+        <div class="section-title">
+          <h3>학생</h3>
+          <span class="badge">${students.length}명</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>이름</th><th>학년-반</th><th>번호</th>
+                <th>재적</th><th>사용</th><th>최근접속</th><th>관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${students.length ? students.map(r=>`
+                <tr>
+                  <td>${esc(r.id)}</td>
+                  <td><b>${esc(r.name)}</b></td>
+                  <td>${esc(r.grade)}-${esc(r.classNo)}</td>
+                  <td>${esc(r.number||'-')}</td>
+                  <td>${esc(r.enrollmentState)}</td>
+                  <td>${stateBadge(r.state)}</td>
+                  <td>${esc(r.lastLogin||'-')}</td>
+                  <td>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn ghost small admin-action" data-action="student-code" data-id="${esc(r.id)}" type="button">코드 재발급</button>
+                      <button class="btn ghost small admin-action" data-action="student-state" data-id="${esc(r.id)}" data-state="${esc(r.state)}" type="button">${r.state==='사용'?'사용중지':'사용복구'}</button>
+                      <button class="btn ghost small admin-action" data-action="student-life" data-id="${esc(r.id)}" data-grade="${esc(r.grade)}" data-class="${esc(r.classNo)}" data-enrollment="${esc(r.enrollmentState)}" type="button">재적 변경</button>
+                      <button class="btn ghost small admin-action" data-action="student-device" data-id="${esc(r.id)}" type="button">자동접속 해제</button>
+                    </div>
+                  </td>
+                </tr>`).join('')
+                : '<tr><td colspan="8" class="empty">학생 없음</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-title" style="margin-top:20px">
+          <h3>교직원</h3>
+          <span class="badge">${staff.length}명</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>이름</th><th>역할</th><th>담당</th>
+                <th>재직</th><th>승인</th><th>사용</th><th>관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${staff.length ? staff.map(r=>`
+                <tr>
+                  <td>${esc(r.id)}</td>
+                  <td><b>${esc(r.name)}</b></td>
+                  <td>${esc(r.role)}</td>
+                  <td>${esc(staffScopeText(r))}</td>
+                  <td>${esc(r.employmentState)}</td>
+                  <td>${esc(r.approval)}</td>
+                  <td>${stateBadge(r.state)}</td>
+                  <td>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn ghost small admin-action" data-action="staff-code" data-id="${esc(r.id)}" type="button">코드 재발급</button>
+                      <button class="btn ghost small admin-action"
+                        data-action="staff-state"
+                        data-id="${esc(r.id)}"
+                        data-approval="${esc(r.approval)}"
+                        data-use="${esc(r.state)}"
+                        data-employment="${esc(r.employmentState)}"
+                        type="button">상태 관리</button>
+                    </div>
+                  </td>
+                </tr>`).join('')
+                : '<tr><td colspan="8" class="empty">교직원 없음</td></tr>'}
+            </tbody>
+          </table>
+        </div>`;
+
+      document.querySelectorAll('.admin-action').forEach(btn=>{
+        btn.addEventListener('click',()=>handleAdminAction(btn));
+      });
+
+      loadAdminSummary();
+    }catch(e){
+      $('adminPane').innerHTML=`<div class="notice danger">${esc(e.message||String(e))}</div>`;
+    }
   }
+
+
+  function stateBadge(state){
+    const s=String(state||'');
+    return `<span class="badge ${s==='사용'?'':'gray'}">${esc(s||'-')}</span>`;
+  }
+
+
+  function staffScopeText(r){
+    const parts=[];
+    if(r.grade) parts.push(`${r.grade}학년`);
+    if(r.classNo) parts.push(`${r.classNo}반`);
+    if(r.scope) parts.push(r.scope);
+    return parts.join(' ')||'-';
+  }
+
+
+  async function handleAdminAction(btn){
+    const action=btn.dataset.action||'';
+    const id=btn.dataset.id||'';
+
+    if(action==='student-code') return resetStudentCode(id);
+    if(action==='student-state') return toggleStudentUseState(id,btn.dataset.state||'');
+    if(action==='student-life') return showStudentLifecycle(
+      id,btn.dataset.enrollment||'',btn.dataset.grade||'',btn.dataset.class||''
+    );
+    if(action==='student-device') return revokeStudentDevicesAdmin(id);
+    if(action==='staff-code') return resetStaffCode(id);
+    if(action==='staff-state') return showStaffState(
+      id,btn.dataset.approval||'',btn.dataset.use||'',btn.dataset.employment||''
+    );
+  }
+
+
+  function showCreateStudent(){
+    showModal(`
+      <div class="modal-head">
+        <h3>학생 신규등록</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <p class="sub">학생ID를 비우면 ST-001 형식으로 자동 발급합니다.</p>
+
+      <div class="field"><label>이름</label><input id="newStudentName" autocomplete="off"></div>
+
+      <div class="grid grid2">
+        <div class="field"><label>학년</label><input id="newStudentGrade" inputmode="numeric" placeholder="예: 1"></div>
+        <div class="field"><label>반</label><input id="newStudentClass" inputmode="numeric" placeholder="예: 1"></div>
+      </div>
+
+      <div class="grid grid2">
+        <div class="field"><label>번호</label><input id="newStudentNumber" inputmode="numeric" placeholder="예: 3"></div>
+        <div class="field"><label>담임ID</label><input id="newStudentHomeroom" placeholder="예: T-01"></div>
+      </div>
+
+      <div class="field"><label>학생ID (선택)</label><input id="newStudentId" placeholder="비우면 자동 발급"></div>
+
+      <button class="btn full" id="createStudentSubmit" type="button">등록하기</button>
+    `);
+    $('createStudentSubmit').onclick=createStudent;
+  }
+
+
+  async function createStudent(){
+    if(S.busy) return;
+    const args=[
+      S.sessionToken,
+      ($('newStudentName').value||'').trim(),
+      ($('newStudentGrade').value||'').trim(),
+      ($('newStudentClass').value||'').trim(),
+      ($('newStudentNumber').value||'').trim(),
+      ($('newStudentHomeroom').value||'').trim(),
+      ($('newStudentId').value||'').trim()
+    ];
+
+    S.busy=true;
+    $('createStudentSubmit').disabled=true;
+
+    try{
+      const res=await window.MI_API.call('adminCreateStudent',args);
+      closeModal();
+      showIssuedCode('학생 등록 완료',res.studentId,res.name,res.temporaryCode,
+        '학생에게 ID와 임시 접속코드를 안전하게 전달해 주세요.');
+      await loadAccounts();
+    }catch(e){
+      toast(e.message||String(e));
+      $('createStudentSubmit').disabled=false;
+    }finally{
+      S.busy=false;
+    }
+  }
+
+
+  function showCreateStaff(){
+    showModal(`
+      <div class="modal-head">
+        <h3>교직원 신규등록</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <p class="sub">역할에 따라 교직원ID를 자동 발급할 수 있습니다.</p>
+
+      <div class="field"><label>이름</label><input id="newStaffName" autocomplete="off"></div>
+
+      <div class="field">
+        <label>역할</label>
+        <select id="newStaffRole">
+          <option value="담임">담임</option>
+          <option value="교과">교과</option>
+          <option value="상담">상담</option>
+          <option value="보건">보건</option>
+          <option value="관리자">관리자</option>
+        </select>
+      </div>
+
+      <div class="grid grid2">
+        <div class="field"><label>담당학년</label><input id="newStaffGrade" placeholder="예: 1"></div>
+        <div class="field"><label>담당반</label><input id="newStaffClass" placeholder="예: 1"></div>
+      </div>
+
+      <div class="field"><label>담당범위</label><input id="newStaffScope" placeholder="예: 1-1,1-2 / 전체"></div>
+      <div class="field"><label>학교계정(선택)</label><input id="newStaffEmail" type="email" placeholder="name@school.kr"></div>
+      <div class="field"><label>교직원ID (선택)</label><input id="newStaffId" placeholder="비우면 자동 발급"></div>
+
+      <button class="btn full" id="createStaffSubmit" type="button">등록하기</button>
+    `);
+    $('createStaffSubmit').onclick=createStaff;
+  }
+
+
+  async function createStaff(){
+    if(S.busy) return;
+    const args=[
+      S.sessionToken,
+      ($('newStaffName').value||'').trim(),
+      $('newStaffRole').value,
+      ($('newStaffGrade').value||'').trim(),
+      ($('newStaffClass').value||'').trim(),
+      ($('newStaffScope').value||'').trim(),
+      ($('newStaffEmail').value||'').trim(),
+      ($('newStaffId').value||'').trim()
+    ];
+
+    S.busy=true;
+    $('createStaffSubmit').disabled=true;
+
+    try{
+      const res=await window.MI_API.call('adminCreateStaff',args);
+      closeModal();
+      showIssuedCode('교직원 등록 완료',res.staffId,res.name,res.temporaryCode,
+        '최초 로그인 후 본인 접속코드로 변경해야 합니다.');
+      await loadAccounts();
+    }catch(e){
+      toast(e.message||String(e));
+      $('createStaffSubmit').disabled=false;
+    }finally{
+      S.busy=false;
+    }
+  }
+
+
+  async function resetStudentCode(id){
+    if(!confirm(`${id} 학생의 접속코드를 재발급할까요?
+기존 자동접속 기기는 모두 해제됩니다.`)) return;
+    try{
+      const res=await window.MI_API.call('adminResetStudentAccessCode',[S.sessionToken,id]);
+      showIssuedCode('학생 접속코드 재발급',res.studentId,'',res.temporaryCode,
+        '기존 자동접속 정보는 모두 해제되었습니다.');
+      await loadAccounts();
+    }catch(e){toast(e.message||String(e));}
+  }
+
+
+  async function resetStaffCode(id){
+    if(!confirm(`${id} 교직원의 접속코드를 재발급할까요?`)) return;
+    try{
+      const res=await window.MI_API.call('adminResetStaffAccessCode',[S.sessionToken,id]);
+      showIssuedCode('교직원 접속코드 재발급',res.staffId,'',res.temporaryCode,
+        '다음 로그인에서 새 접속코드로 변경하도록 안내해 주세요.');
+      await loadAccounts();
+    }catch(e){toast(e.message||String(e));}
+  }
+
+
+  function showIssuedCode(title,id,name,code,note){
+    showModal(`
+      <div class="modal-head">
+        <h3>${esc(title)}</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <div class="notice">
+        <b>${esc(id)}${name?' · '+esc(name):''}</b><br>
+        <span class="sub">임시 접속코드는 이번 한 번만 표시됩니다.</span>
+      </div>
+      <div style="margin:18px 0;padding:18px;border:1px solid #d9e5df;border-radius:14px;text-align:center">
+        <div class="sub">임시 접속코드</div>
+        <div style="font-size:28px;font-weight:800;letter-spacing:2px;margin-top:5px">${esc(code||'')}</div>
+      </div>
+      <p class="sub">${esc(note||'')}</p>
+      <button class="btn full" id="copyIssuedCodeBtn" type="button">접속코드 복사</button>
+    `);
+
+    $('copyIssuedCodeBtn').onclick=async()=>{
+      try{
+        await navigator.clipboard.writeText(String(code||''));
+        toast('접속코드를 복사했습니다.');
+      }catch(e){
+        toast('복사가 제한되었습니다. 화면의 코드를 직접 복사해 주세요.');
+      }
+    };
+  }
+
+
+  async function toggleStudentUseState(id,current){
+    const next=current==='사용'?'중지':'사용';
+    const msg=next==='중지'
+      ? `${id} 학생 계정 사용을 중지할까요?
+현재 세션과 자동접속 기기도 해제됩니다.`
+      : `${id} 학생 계정을 다시 사용할 수 있게 할까요?`;
+
+    if(!confirm(msg)) return;
+
+    try{
+      await window.MI_API.call('adminSetStudentUseState',[
+        S.sessionToken,id,next,`관리자 화면에서 ${next} 처리`
+      ]);
+      toast(`학생 계정을 ${next} 상태로 변경했습니다.`);
+      await loadAccounts();
+    }catch(e){toast(e.message||String(e));}
+  }
+
+
+  function showStudentLifecycle(id,enrollment,grade,classNo){
+    const states=['재학','전입','전출','졸업','유예','사망','기타'];
+    showModal(`
+      <div class="modal-head">
+        <h3>학생 재적상태 변경</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <p class="sub">${esc(id)} 학생의 재적상태와 학년·반을 변경합니다.</p>
+
+      <div class="field">
+        <label>재적상태</label>
+        <select id="lifeState">
+          ${states.map(x=>`<option value="${esc(x)}"${x===enrollment?' selected':''}>${esc(x)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="grid grid2">
+        <div class="field"><label>학년</label><input id="lifeGrade" value="${esc(grade)}"></div>
+        <div class="field"><label>반</label><input id="lifeClass" value="${esc(classNo)}"></div>
+      </div>
+
+      <div class="field"><label>메모</label><input id="lifeMemo" placeholder="예: 전출 처리 / 학년 진급"></div>
+      <button class="btn full" id="lifeSubmit" type="button">변경 저장</button>
+    `);
+
+    $('lifeSubmit').onclick=async()=>{
+      try{
+        await window.MI_API.call('adminUpdateStudentLifecycle',[
+          S.sessionToken,id,$('lifeState').value,
+          ($('lifeGrade').value||'').trim(),
+          ($('lifeClass').value||'').trim(),
+          ($('lifeMemo').value||'').trim()
+        ]);
+        closeModal();
+        toast('학생 재적정보를 변경했습니다.');
+        await loadAccounts();
+      }catch(e){toast(e.message||String(e));}
+    };
+  }
+
+
+  async function revokeStudentDevicesAdmin(id){
+    if(!confirm(`${id} 학생의 등록된 자동접속 기기를 모두 해제할까요?`)) return;
+    try{
+      const res=await window.MI_API.call('adminRevokeStudentDevices',[S.sessionToken,id]);
+      toast(`자동접속 기기 ${res.count||0}개를 해제했습니다.`);
+      await loadAccounts();
+    }catch(e){toast(e.message||String(e));}
+  }
+
+
+  function showStaffState(id,approval,use,employment){
+    const approvalOpts=['승인','대기','반려'];
+    const useOpts=['사용','중지'];
+    const employmentOpts=['재직','휴직','퇴직'];
+
+    const opts=(arr,current)=>arr.map(x=>`<option value="${esc(x)}"${x===current?' selected':''}>${esc(x)}</option>`).join('');
+
+    showModal(`
+      <div class="modal-head">
+        <h3>교직원 상태 관리</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <p class="sub">${esc(id)} 계정 상태를 변경합니다.</p>
+
+      <div class="field"><label>승인상태</label><select id="staffApproval">${opts(approvalOpts,approval)}</select></div>
+      <div class="field"><label>사용상태</label><select id="staffUse">${opts(useOpts,use)}</select></div>
+      <div class="field"><label>재직상태</label><select id="staffEmployment">${opts(employmentOpts,employment)}</select></div>
+      <div class="field"><label>메모</label><input id="staffStateMemo" placeholder="상태 변경 사유"></div>
+
+      <button class="btn full" id="staffStateSubmit" type="button">변경 저장</button>
+    `);
+
+    $('staffStateSubmit').onclick=async()=>{
+      try{
+        await window.MI_API.call('adminSetStaffState',[
+          S.sessionToken,id,
+          $('staffApproval').value,
+          $('staffUse').value,
+          $('staffEmployment').value,
+          ($('staffStateMemo').value||'').trim()
+        ]);
+        closeModal();
+        toast('교직원 계정 상태를 변경했습니다.');
+        await loadAccounts();
+      }catch(e){toast(e.message||String(e));}
+    };
+  }
+
 
   function renderStudentMiniList(list){
     if(!list.length) return '<div class="empty">현재 접근 가능한 학생이 없습니다.</div>';
@@ -451,7 +903,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.4 quick mood write
+  // Hybrid 0.1.6 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

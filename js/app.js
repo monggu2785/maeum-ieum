@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.9 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.2.0 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -384,7 +384,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.9</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.2.0</p>
       </div>
 
       ${renderMoodDashboardSection()}
@@ -705,10 +705,12 @@
           </div>` :
           '<div class="empty">아직 등록된 교사 관찰기록이 없습니다.</div>'}
 
-        ${data.viewer?.canCounsel ? `
-          <div style="margin-top:18px">
-            <button class="btn full" id="openCounselingSupportBtn" type="button">상담지원 · 후속확인</button>
-          </div>` : ''}
+        <div class="grid grid2" style="margin-top:18px">
+          <button class="btn secondary full" id="openStudentTimelineBtn" type="button">학생 지원 타임라인</button>
+          ${data.viewer?.canCounsel
+            ? '<button class="btn full" id="openCounselingSupportBtn" type="button">상담지원 · 후속확인</button>'
+            : '<div></div>'}
+        </div>
 
         ${data.viewer?.canWriteObservation ? `
           <section class="card" style="margin-top:18px">
@@ -742,6 +744,13 @@
 
         <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'')}</p>
       `;
+
+      if($('openStudentTimelineBtn')){
+        $('openStudentTimelineBtn').onclick=()=>openStudentTimeline(
+          studentId,
+          s.name||studentId
+        );
+      }
 
       if(data.viewer?.canCounsel && $('openCounselingSupportBtn')){
         $('openCounselingSupportBtn').onclick=()=>openCounselingSupport(
@@ -788,6 +797,140 @@
     }finally{
       S.busy=false;
     }
+  }
+
+
+  async function openStudentTimeline(studentId,studentName){
+    const id=String(studentId||'').trim();
+    if(!id) return;
+
+    showModal(`
+      <div class="modal-head">
+        <h3>${esc(studentName||id)} · 학생 지원 타임라인</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+
+      <div class="grid grid2">
+        <div class="field" style="margin:0">
+          <label>조회 기간</label>
+          <select id="timelineDays">
+            <option value="14">최근 14일</option>
+            <option value="30" selected>최근 30일</option>
+            <option value="60">최근 60일</option>
+            <option value="90">최근 90일</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn secondary full" id="timelineRefreshBtn" type="button">새로고침</button>
+        </div>
+      </div>
+
+      <div id="studentTimelinePane" style="margin-top:14px">
+        <div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+      </div>
+    `);
+
+    $('timelineRefreshBtn').onclick=()=>loadStudentTimeline(id);
+    $('timelineDays').onchange=()=>loadStudentTimeline(id);
+    await loadStudentTimeline(id);
+  }
+
+
+  async function loadStudentTimeline(studentId){
+    const pane=$('studentTimelinePane');
+    if(!pane) return;
+
+    const days=Number($('timelineDays')?.value||30);
+
+    try{
+      const raw=await window.MI_API.call('getStudentSupportTimeline',[
+        S.sessionToken,studentId,days
+      ]);
+      const data=parseSupportPayload(raw);
+      const s=data.student||{};
+      const counts=data.counts||{};
+      const events=Array.isArray(data.events)?data.events:[];
+
+      pane.innerHTML=`
+        <div class="notice">
+          <b>${esc(s.name||'')} · ${esc(s.grade||'')}-${esc(s.classNo||'')} ${s.number?esc(s.number)+'번':''}</b><br>
+          <span class="sub">${esc(data.note||'')}</span>
+        </div>
+
+        <div class="grid grid3" style="margin-top:14px">
+          <section class="card">
+            <div class="section-title"><h3>마음</h3><span class="badge">${counts.mood||0}</span></div>
+            <p class="sub">오늘의 마음 기록</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>신호</h3><span class="badge">${(counts.friend||0)+(counts.teacher||0)+(counts.parent||0)}</span></div>
+            <p class="sub">친구·교사·학부모 신호</p>
+          </section>
+          <section class="card">
+            <div class="section-title"><h3>지원</h3><span class="badge">${(counts.counsel||0)+(counts.followup||0)}</span></div>
+            <p class="sub">상담·후속확인 기록</p>
+          </section>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>최근 ${data.rangeDays||days}일 기록</h3>
+          <span class="badge">${events.length}건</span>
+        </div>
+
+        ${events.length ? `
+          <div class="list">
+            ${events.map(e=>timelineEventHtml(e)).join('')}
+          </div>` :
+          '<div class="empty">조회 기간에 기록이 없습니다.</div>'}
+
+        <p class="sub" style="margin-top:12px;text-align:right">
+          ${data.viewer?.sensitive?'지원권한 보기':'관리자 비민감 요약'} · 백엔드 ${esc(data.backendVersion||'')}
+        </p>
+      `;
+    }catch(e){
+      pane.innerHTML=`
+        <div class="notice danger">
+          <b>학생 지원 타임라인 연결 오류</b><br>${esc(e.message||String(e))}
+        </div>`;
+    }
+  }
+
+
+  function timelineEventHtml(e){
+    const kind=String(e.type||'');
+    const iconMap={
+      mood:'💬',
+      friend:'🤝',
+      teacher:'👩‍🏫',
+      parent:'🏠',
+      counsel:'📝',
+      followup:'✅'
+    };
+    const icon=iconMap[kind]||'•';
+
+    let badgeClass='gray';
+    if(kind==='mood' && Number(e.level)>=3) badgeClass='';
+    if(kind==='counsel' || kind==='followup') badgeClass='';
+
+    return `
+      <div class="row" style="align-items:flex-start">
+        <div style="display:flex;gap:10px;min-width:0;flex:1">
+          <div style="font-size:22px;line-height:1.2">${icon}</div>
+          <div style="min-width:0">
+            <div>
+              <b>${esc(e.typeLabel||'기록')}</b>
+              ${e.title?` · ${esc(e.title)}`:''}
+            </div>
+            ${e.summary?`<div class="sub" style="margin-top:4px;white-space:pre-wrap">${esc(e.summary)}</div>`:''}
+            <small>
+              ${esc(e.recordedAt||'')}
+              ${e.actor?' · '+esc(e.actor):''}
+              ${e.state?' · '+esc(e.state):''}
+            </small>
+          </div>
+        </div>
+        <span class="badge ${badgeClass}">${esc(e.visibility||'')}</span>
+      </div>`;
   }
 
 
@@ -1070,7 +1213,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.9로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.2.0로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -1596,7 +1739,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.9 quick mood write
+  // Hybrid 0.2.0 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

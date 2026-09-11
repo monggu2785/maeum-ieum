@@ -40,7 +40,7 @@
         </div>
         <button class="btn full" id="schoolConnectBtn" type="button">학교 확인</button>
         <div style="height:10px"></div>
-        <div class="notice warn"><b>Hybrid 0.1.8 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
+        <div class="notice warn"><b>Hybrid 0.1.9 관리자 계정관리판</b><br><span class="sub">학생이 마음을 선택하는 순간 서버 전송을 시작하고, 바로 창을 닫아도 전송을 계속 시도합니다. 서버 확인 전에는 저장 완료라고 표시하지 않습니다.</span></div>
       </section>`;
     $('schoolConnectBtn').onclick = () => connectSchool(($('schoolCode').value || '').trim().toUpperCase(), false);
     $('schoolCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('schoolConnectBtn').click(); });
@@ -367,6 +367,16 @@
       </div>`;
 
     $('changeCodeBtn').onclick=()=>showChangeCode(false);
+
+    document.querySelectorAll('.staff-student-support').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        openStudentSupport(
+          btn.dataset.studentId||'',
+          btn.dataset.studentName||''
+        );
+      });
+    });
+
     if(u.role==='homeroom') bindMoodDashboard();
   }
 
@@ -374,7 +384,7 @@
     main().innerHTML=`
       <div class="home-head">
         <h2>${esc(S.home.user.name)}님</h2>
-        <p>마음이음 학교 관리자 · Hybrid 0.1.8</p>
+        <p>마음이음 학교 관리자 · Hybrid 0.1.9</p>
       </div>
 
       ${renderMoodDashboardSection()}
@@ -695,6 +705,11 @@
           </div>` :
           '<div class="empty">아직 등록된 교사 관찰기록이 없습니다.</div>'}
 
+        ${data.viewer?.canCounsel ? `
+          <div style="margin-top:18px">
+            <button class="btn full" id="openCounselingSupportBtn" type="button">상담지원 · 후속확인</button>
+          </div>` : ''}
+
         ${data.viewer?.canWriteObservation ? `
           <section class="card" style="margin-top:18px">
             <div class="section-title">
@@ -727,6 +742,13 @@
 
         <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'')}</p>
       `;
+
+      if(data.viewer?.canCounsel && $('openCounselingSupportBtn')){
+        $('openCounselingSupportBtn').onclick=()=>openCounselingSupport(
+          studentId,
+          s.name||studentId
+        );
+      }
 
       if(data.viewer?.canWriteObservation && $('teacherObservationSubmit')){
         $('teacherObservationSubmit').onclick=()=>submitTeacherObservationFromModal(studentId);
@@ -769,6 +791,263 @@
   }
 
 
+  async function openCounselingSupport(studentId,studentName){
+    const id=String(studentId||'').trim();
+    if(!id) return;
+
+    showModal(`
+      <div class="modal-head">
+        <h3>${esc(studentName||id)} · 상담지원</h3>
+        <button class="x" onclick="closeModal()">닫기</button>
+      </div>
+      <div id="counselingSupportPane">
+        <div class="loading"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+      </div>
+    `);
+
+    await loadCounselingSupport(id);
+  }
+
+
+  async function loadCounselingSupport(studentId){
+    const pane=$('counselingSupportPane');
+    if(!pane) return;
+
+    try{
+      const raw=await window.MI_API.call('getCounselingSupport',[
+        S.sessionToken,studentId
+      ]);
+      const data=parseSupportPayload(raw);
+      const s=data.student||{};
+      const logs=Array.isArray(data.counseling)?data.counseling:[];
+      const followups=Array.isArray(data.followups)?data.followups:[];
+
+      pane.innerHTML=`
+        <div class="notice warn">
+          <b>안전 관련 안내</b><br>
+          <span class="sub">${esc(data.safetyNote||'')}</span>
+        </div>
+
+        <div class="notice" style="margin-top:12px">
+          <b>${esc(s.name||'')} · ${esc(s.grade||'')}-${esc(s.classNo||'')} ${s.number?esc(s.number)+'번':''}</b><br>
+          <span class="sub">상담 세부내용은 담임·상담·보건교사의 권한 범위에서만 확인합니다. 관리자는 기본 열람하지 않습니다.</span>
+        </div>
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>상담일지</h3><span class="badge">${logs.length}건</span>
+        </div>
+
+        ${logs.length ? `
+          <div class="list">
+            ${logs.map(r=>`
+              <div class="row" style="align-items:flex-start">
+                <div style="min-width:0;flex:1">
+                  <b>${esc(r.primaryDifficulty||'상담')}</b>
+                  <div class="sub" style="margin-top:5px;white-space:pre-wrap">${esc(r.summary||'')}</div>
+                  ${r.action?`<div class="sub" style="margin-top:5px"><b>조치:</b> ${esc(r.action)}</div>`:''}
+                  <small>
+                    ${esc(r.recordedAt||'')} · ${esc(r.staffName||r.staffId||'')}
+                    ${r.staffRole?' · '+esc(r.staffRole):''}
+                    ${r.nextCheckDate?' · 다음확인 '+esc(r.nextCheckDate):''}
+                  </small>
+                </div>
+                <span class="badge gray">${esc(r.currentState||r.state||'')}</span>
+              </div>`).join('')}
+          </div>` :
+          '<div class="empty">아직 상담일지가 없습니다.</div>'}
+
+        <div class="section-title" style="margin-top:18px">
+          <h3>후속확인</h3><span class="badge">${followups.length}건</span>
+        </div>
+
+        ${followups.length ? `
+          <div class="list">
+            ${followups.map(f=>`
+              <div class="row" style="align-items:flex-start">
+                <div>
+                  <b>${esc(f.dueDate||'날짜 미정')} · ${esc(f.type||'후속확인')}</b>
+                  <div class="sub" style="margin-top:4px">${f.memo?esc(f.memo):'확인 메모 없음'}</div>
+                  <small>담당 ${esc(f.staffName||f.staffId||'')}</small>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <span class="badge ${f.state==='완료'?'gray':''}">${esc(f.state||'')}</span>
+                  ${f.state!=='완료'?`<button class="btn ghost small followup-complete-btn" type="button" data-followup-id="${esc(f.followupId)}">완료</button>`:''}
+                </div>
+              </div>`).join('')}
+          </div>` :
+          '<div class="empty">예정된 후속확인이 없습니다.</div>'}
+
+        <section class="card" style="margin-top:18px">
+          <div class="section-title">
+            <h3>상담일지 작성</h3><span class="badge">${esc(data.viewer?.roleLabel||'')}</span>
+          </div>
+
+          <div class="field">
+            <label>주요 어려움</label>
+            <select id="counselDifficulty">
+              <option value="">선택해 주세요</option>
+              <option value="친구관계">친구관계</option>
+              <option value="학업·진로">학업·진로</option>
+              <option value="가족">가족</option>
+              <option value="정서·기분">정서·기분</option>
+              <option value="학교생활">학교생활</option>
+              <option value="건강·수면">건강·수면</option>
+              <option value="안전 관련 걱정">안전 관련 걱정</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>상담 요약</label>
+            <textarea id="counselSummary" rows="4" maxlength="1200" style="width:100%;box-sizing:border-box" placeholder="학생이 표현한 내용과 상담에서 확인한 핵심을 사실 중심으로 기록합니다."></textarea>
+          </div>
+
+          <div class="field">
+            <label>현재 상태</label>
+            <select id="counselState">
+              <option value="안정">안정</option>
+              <option value="관찰필요">관찰필요</option>
+              <option value="추가지원필요">추가지원필요</option>
+              <option value="즉시확인필요">즉시확인필요</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>조치·지원 내용</label>
+            <textarea id="counselAction" rows="3" maxlength="800" style="width:100%;box-sizing:border-box" placeholder="예: 쉬는시간 재확인, 보호자 연락 예정, 상담교사 연계 요청"></textarea>
+          </div>
+
+          <div class="grid grid2">
+            <div class="field">
+              <label>보호자 연계</label>
+              <select id="counselParent">
+                <option value="미정">미정</option>
+                <option value="연계하지 않음">연계하지 않음</option>
+                <option value="안내">안내</option>
+                <option value="상담">상담</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>전문기관 연계</label>
+              <select id="counselProfessional">
+                <option value="미정">미정</option>
+                <option value="연계하지 않음">연계하지 않음</option>
+                <option value="검토">검토</option>
+                <option value="연계">연계</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid2">
+            <div class="field">
+              <label>다음 확인일</label>
+              <input id="counselNextDate" type="date">
+            </div>
+            <div class="field">
+              <label>공개범위</label>
+              <select id="counselVisibility">
+                <option value="담임·상담·보건">담임·상담·보건</option>
+                ${data.viewer?.canUseRestrictedVisibility?'<option value="상담·보건">상담·보건만</option>':''}
+              </select>
+            </div>
+          </div>
+
+          <button class="btn full" id="counselSaveBtn" type="button">상담일지 저장</button>
+        </section>
+
+        <p class="sub" style="margin-top:12px;text-align:right">백엔드 ${esc(data.backendVersion||'')}</p>
+      `;
+
+      $('counselSaveBtn').onclick=()=>saveCounselingFromModal(studentId);
+
+      document.querySelectorAll('.followup-complete-btn').forEach(btn=>{
+        btn.addEventListener('click',()=>completeFollowupFromModal(
+          studentId,
+          btn.dataset.followupId||''
+        ));
+      });
+    }catch(e){
+      pane.innerHTML=`
+        <div class="notice danger">
+          <b>상담지원 연결 오류</b><br>${esc(e.message||String(e))}
+        </div>`;
+    }
+  }
+
+
+  async function saveCounselingFromModal(studentId){
+    if(S.busy) return;
+
+    const difficulty=$('counselDifficulty')?.value||'';
+    const summary=($('counselSummary')?.value||'').trim();
+    const state=$('counselState')?.value||'';
+    const action=($('counselAction')?.value||'').trim();
+    const parentLink=$('counselParent')?.value||'미정';
+    const professionalLink=$('counselProfessional')?.value||'미정';
+    const nextDate=$('counselNextDate')?.value||'';
+    const visibility=$('counselVisibility')?.value||'담임·상담·보건';
+
+    if(!difficulty) return toast('주요 어려움을 선택해 주세요.');
+    if(!summary) return toast('상담 요약을 입력해 주세요.');
+    if(!action) return toast('조치·지원 내용을 입력해 주세요.');
+
+    if(state==='즉시확인필요'){
+      const proceed=confirm(
+        '현재 상태를 "즉시확인필요"로 선택했습니다.\n\n' +
+        '학생의 즉각적인 안전이 걱정되면 이 기록 저장보다 직접 확인과 학교 위기대응 절차가 우선입니다.\n\n' +
+        '학생을 이미 확인했거나 필요한 조치를 진행하면서 기록을 저장하시겠습니까?'
+      );
+      if(!proceed) return;
+    }
+
+    const btn=$('counselSaveBtn');
+    S.busy=true;
+    if(btn) btn.disabled=true;
+
+    try{
+      const raw=await window.MI_API.call('saveCounselingLog',[
+        S.sessionToken,
+        studentId,
+        difficulty,
+        summary,
+        state,
+        action,
+        parentLink,
+        professionalLink,
+        nextDate,
+        visibility
+      ]);
+      const res=parseSupportPayload(raw);
+      toast(res.message||'상담일지를 저장했습니다.');
+      await loadCounselingSupport(studentId);
+    }catch(e){
+      toast(e.message||String(e));
+      if(btn) btn.disabled=false;
+    }finally{
+      S.busy=false;
+    }
+  }
+
+
+  async function completeFollowupFromModal(studentId,followupId){
+    if(!followupId) return;
+
+    const memo=prompt('후속확인 결과를 간단히 기록해 주세요.','');
+    if(memo===null) return;
+
+    try{
+      const raw=await window.MI_API.call('completeCounselingFollowup',[
+        S.sessionToken,followupId,String(memo||'').trim()
+      ]);
+      const res=parseSupportPayload(raw);
+      toast(res.message||'후속확인을 완료했습니다.');
+      await loadCounselingSupport(studentId);
+    }catch(e){
+      toast(e.message||String(e));
+    }
+  }
+
+
   function moodAttentionBadge(kind,label){
     if(kind==='priority'){
       return '<span class="badge" style="background:#fde4e4;color:#9b1c1c">우선 살펴보기</span>';
@@ -791,7 +1070,7 @@
       }
     }
     if(!data || typeof data!=='object'){
-      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.8로 배포되었는지 확인해 주세요.');
+      throw new Error('관리자 데이터 응답이 비어 있습니다. Apps Script 웹앱이 0.1.9로 배포되었는지 확인해 주세요.');
     }
     return data;
   }
@@ -1232,7 +1511,24 @@
 
   function renderStudentMiniList(list){
     if(!list.length) return '<div class="empty">현재 접근 가능한 학생이 없습니다.</div>';
-    return `<div class="list">${list.slice(0,12).map(s=>`<div class="row"><div><b>${esc(s.name)}</b><br><small>${esc(s.grade)}-${esc(s.classNo)} ${esc(s.number||'')}번</small></div><span class="badge ${s.accessLevel==='sensitive'?'':'gray'}">${s.accessLevel==='sensitive'?'지원권한':'기본정보'}</span></div>`).join('')}</div>${list.length>12?`<p class="sub">외 ${list.length-12}명</p>`:''}`;
+
+    const role=S.home?.user?.role||'';
+    return `<div class="list">${list.slice(0,12).map(s=>{
+      const canOpen =
+        role==='homeroom' ||
+        ((role==='counselor'||role==='health') && s.accessLevel==='sensitive');
+
+      return `<div class="row">
+        <div>
+          <b>${esc(s.name)}</b><br>
+          <small>${esc(s.grade)}-${esc(s.classNo)} ${esc(s.number||'')}번</small>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+          <span class="badge ${s.accessLevel==='sensitive'?'':'gray'}">${s.accessLevel==='sensitive'?'지원권한':'기본정보'}</span>
+          ${canOpen?`<button class="btn ghost small staff-student-support" type="button" data-student-id="${esc(s.id)}" data-student-name="${esc(s.name)}">학생 지원</button>`:''}
+        </div>
+      </div>`;
+    }).join('')}</div>${list.length>12?`<p class="sub">외 ${list.length-12}명</p>`:''}`;
   }
 
   function showChangeCode(forced){
@@ -1300,7 +1596,7 @@
 
 
   // ---------------------------------------------------------------------------
-  // Hybrid 0.1.8 quick mood write
+  // Hybrid 0.1.9 quick mood write
   // ---------------------------------------------------------------------------
 
   function quickTokenKey(){return 'mi_quick_write_'+(S.schoolCode||'').toUpperCase();}

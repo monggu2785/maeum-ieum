@@ -1,0 +1,67 @@
+:root {
+  --bg: #f7fbfa;
+  --card: #ffffff;
+  --text: #17342f;
+  --muted: #6b7f7a;
+  --line: #dfeae7;
+  --soft: #edf7f4;
+  --accent: #267d6a;
+  --accent2: #e6f3ef;
+  --warn: #fff5e8;
+  --danger-soft: #fff0ee;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.app { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 22px; }
+.shell { width: min(680px, 100%); }
+.brand { text-align: center; margin-bottom: 18px; }
+.brand h1 { margin: 0; font-size: 30px; letter-spacing: -0.04em; }
+.brand p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 24px; box-shadow: 0 10px 34px rgba(34, 78, 69, 0.07); }
+.title { margin: 0 0 8px; text-align: center; font-size: 26px; letter-spacing: -0.04em; }
+.sub { margin: 0 0 20px; text-align: center; color: var(--muted); line-height: 1.55; }
+.field { margin: 14px 0; }
+.field label { display: block; font-weight: 700; margin-bottom: 7px; }
+.field input { width: 100%; border: 1px solid var(--line); border-radius: 14px; padding: 14px 15px; outline: none; background: #fff; }
+.field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(38,125,106,.11); }
+.check { display: flex; gap: 9px; align-items: flex-start; margin: 14px 0 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.primary { width: 100%; border: 0; background: var(--accent); color: white; border-radius: 15px; padding: 14px 16px; font-weight: 800; }
+.primary:disabled { opacity: .55; cursor: wait; }
+.status { min-height: 24px; text-align: center; color: var(--muted); font-size: 13px; margin-top: 12px; }
+.profile { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; color: var(--muted); font-size: 14px; }
+.profile strong { color: var(--text); }
+.linkbtn { border: 0; background: transparent; color: var(--muted); text-decoration: underline; padding: 4px; }
+.moods { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 20px; }
+.mood { border: 1px solid var(--line); background: white; border-radius: 18px; min-height: 112px; padding: 14px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; transition: .15s ease; }
+.mood:hover, .mood:focus-visible { transform: translateY(-2px); border-color: #b9d7cf; }
+.mood.selected { border-color: var(--accent); background: var(--soft); box-shadow: 0 0 0 2px rgba(38,125,106,.1); }
+.emoji { font-size: 36px; }
+.mood span:last-child { font-size: 13px; font-weight: 700; }
+.follow { margin-top: 18px; padding: 18px; border-radius: 18px; background: var(--warn); }
+.follow h3 { margin: 0 0 12px; font-size: 18px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid #e4d6bd; background: white; color: var(--text); border-radius: 999px; padding: 9px 12px; }
+.chip.selected { background: #f4e4c7; border-color: #d9bc86; }
+.textbox { width: 100%; border: 1px solid #e4d6bd; border-radius: 12px; padding: 11px; margin-top: 10px; display: none; }
+.helpbox { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eadbc2; }
+.help-actions { display: grid; gap: 8px; }
+.helpbtn { border: 1px solid #e4d6bd; background: white; border-radius: 13px; padding: 11px 12px; text-align: left; }
+.helpbtn.urgent { background: var(--danger-soft); border-color: #f0c9c3; }
+.note { margin-top: 13px; color: #765c32; font-size: 13px; line-height: 1.55; }
+.toast { margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: var(--soft); color: #316459; font-size: 14px; }
+.error { background: var(--danger-soft); color: #8a3931; }
+.setup { text-align: left; line-height: 1.7; }
+code { background: #eef3f2; border-radius: 6px; padding: 2px 6px; }
+@media (max-width: 620px) {
+  .app { padding: 14px; align-items: flex-start; }
+  .shell { margin-top: 10px; }
+  .card { padding: 18px 14px; border-radius: 20px; }
+  .title { font-size: 23px; }
+  .moods { grid-template-columns: repeat(5, minmax(0,1fr)); gap: 6px; }
+  .mood { min-height: 92px; padding: 10px 3px; border-radius: 14px; }
+  .emoji { font-size: 29px; }
+  .mood span:last-child { font-size: 11px; letter-spacing: -0.05em; }
+}

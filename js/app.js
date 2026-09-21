@@ -98,7 +98,7 @@
     }
 
     btn.disabled = true;
-    status.textContent = '학교 서버와 연결하고 있어요…';
+    status.textContent = '아이디와 접속코드를 확인하고 있어요…';
     try {
       await S.bridgePromise;
       const res = await window.MI_API.call('loginStudent', [loginId, accessCode, remember, deviceAlias()]);
@@ -129,7 +129,7 @@
         ${MOODS.map(m => `<button class="mood" data-code="${m.code}" type="button"><span class="emoji">${m.emoji}</span><span>${m.label}</span></button>`).join('')}
       </div>
       <div id="followArea"></div>
-      <div id="saveStatus" class="status">${instant ? '학교 서버는 뒤에서 안전하게 연결 중이에요.' : ''}</div>
+      <div id="saveStatus" class="status">${instant ? '자동접속을 뒤에서 안전하게 확인하고 있어요.' : ''}</div>
     </section></div>`;
 
     document.querySelectorAll('.mood').forEach(btn => btn.addEventListener('click', () => selectMood(btn.dataset.code)));

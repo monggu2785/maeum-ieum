@@ -65,3 +65,56 @@ code { background: #eef3f2; border-radius: 6px; padding: 2px 6px; }
   .emoji { font-size: 29px; }
   .mood span:last-child { font-size: 11px; letter-spacing: -0.05em; }
 }
+
+/* Phase 3.0 - 교사용 안전망 */
+.staff-shell { width: min(900px, 100%); }
+.staff-card { padding: 24px; }
+.section-kicker { text-align: center; color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: .04em; margin-bottom: 6px; }
+.staff-title { margin: 0 0 16px; text-align: center; font-size: 28px; letter-spacing: -0.04em; }
+.entry-switch { text-align: center; margin-top: 16px; }
+.profile-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 10px; }
+.summary-box { border: 1px solid var(--line); border-radius: 16px; padding: 14px 10px; background: #fbfdfc; text-align: center; }
+.summary-box strong { display: block; font-size: 25px; line-height: 1; margin-bottom: 7px; }
+.summary-box span { color: var(--muted); font-size: 12px; }
+.staff-guide { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 8px 0 16px; text-align: center; }
+.signal-list { display: grid; gap: 12px; }
+.student-signal-card { border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: #fff; }
+.student-signal-card.urgent-card { border-color: #efc5bf; background: #fffafa; }
+.student-name { font-size: 19px; font-weight: 800; }
+.student-meta { margin-top: 2px; color: var(--muted); font-size: 13px; }
+.signal-badges { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 8px; }
+.signal-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 9px; background: #eff5f3; color: #41625b; font-size: 12px; font-weight: 700; }
+.signal-badge.help { background: #fff4df; color: #765516; }
+.signal-badge.urgent { background: #ffe7e3; color: #8b382f; }
+.signal-badge.mood-badge { background: #f2edff; color: #635089; }
+.signal-line { margin: 7px 0 12px; color: var(--muted); font-size: 13px; }
+.secondary { border: 1px solid #b8d1cb; background: white; color: var(--accent); border-radius: 12px; padding: 10px 12px; font-weight: 800; }
+.secondary:hover, .secondary:focus-visible { background: var(--soft); }
+.empty-state { padding: 30px 16px; border: 1px dashed #bfd1cc; border-radius: 18px; text-align: center; color: var(--muted); background: #fbfdfc; }
+.privacy-note { margin: 18px 0; padding: 16px; border-radius: 16px; background: #f2f6f5; color: #526b65; line-height: 1.6; }
+.loading-line { height: 4px; border-radius: 999px; background: linear-gradient(90deg, #e5f0ed, #8fc1b5, #e5f0ed); background-size: 200% 100%; animation: mi-loading 1.2s linear infinite; }
+@keyframes mi-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.student-detail-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 18px; }
+.student-detail-head h2 { margin: 2px 0 4px; font-size: 26px; }
+.student-detail-head p { margin: 0; color: var(--muted); }
+.detail-section { margin-top: 20px; }
+.detail-section h3 { margin: 0 0 10px; font-size: 18px; }
+.detail-item { border: 1px solid var(--line); border-radius: 15px; padding: 13px 14px; margin-bottom: 9px; background: #fff; }
+.detail-item.urgent-detail { border-color: #efc5bf; background: #fffafa; }
+.detail-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.detail-top span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.detail-meta { margin-top: 7px; color: var(--muted); font-size: 13px; }
+.detail-text { margin-top: 8px; padding: 10px 11px; border-radius: 10px; background: #f7faf9; line-height: 1.55; font-size: 13px; }
+.ack-btn { margin-top: 10px; }
+.empty-inline { color: var(--muted); font-size: 13px; padding: 11px 0; }
+.phase-next { margin-top: 20px; padding: 13px 14px; border-radius: 14px; background: #eef7f5; color: #42685e; font-size: 13px; line-height: 1.55; }
+
+@media (max-width: 620px) {
+  .staff-card { padding: 18px 14px; }
+  .staff-title { font-size: 24px; }
+  .summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .profile { align-items: flex-start; }
+  .profile-actions { gap: 3px; }
+  .detail-top { flex-direction: column; gap: 4px; }
+}
